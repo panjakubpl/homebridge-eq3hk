@@ -1,0 +1,28 @@
+{
+  "name": "homebridge-eq3hk",
+  "version": "1.0.0",
+  "description": "Homebridge plugin for EQ3 Bluetooth thermostats",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["homebridge-plugin"],
+  "author": "Twoje Imię <twoj.email@example.com>",
+  "license": "ISC",
+  "dependencies": {},
+  "engines": {
+    "homebridge": ">=1.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/panjakubpl/homebridge-eq3hk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/panjakubpl/homebridge-eq3hk/issues"
+  },
+  "homepage": "https://github.com/panjakubpl/homebridge-eq3hk/blob/main/README.md",
+  "contributors": [
+    "Jakub <jakub@wdz.net.pl>",
+    "Heckie <https://github.com/Heckie75>"
+  ]
+}

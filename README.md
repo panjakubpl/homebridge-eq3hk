@@ -55,7 +55,7 @@ Add the MAC address of your Bluetooth thermostat to the `config.json` file in yo
 ]
 ```
 
-- `"cacheDuration": 10` represents the time (in minutes) the plugin will store the last read value. In this example, the last value is cached for 10 minutes.
+- `"cacheDuration": 10` represents the time (in seconds) the plugin will store the last read value. In this example, the last value is cached for 10 seconds. This parameter is optional. If you skip it, the default is set to 300 seconds (5 minutes).
 
 ## Note
 

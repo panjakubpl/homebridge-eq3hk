@@ -57,6 +57,10 @@ Add the MAC address of your Bluetooth thermostat to the `config.json` file in yo
 
 - `"cacheDuration": 10` represents the time (in seconds) the plugin will store the last read value. In this example, the last value is cached for 10 seconds. This parameter is optional. If you skip it, the default is 300 seconds (5 minutes). This information is also visible in the Home app (accessory settings), Firmware section.
 
+## Multiple Thermostats
+
+You can add multiple thermostats to your configuration. However, with an increased number of thermostats, you might experience the "No Response" status more frequently in the Home app. This is due to the nature of Bluetooth connections and the fact that the app tries to refresh multiple devices simultaneously. Thanks to caching and background refreshing, this situation can be less bothersome.
+
 ## Note
 
 Due to the nature of Bluetooth connections, you might occasionally see a "No Response" status for the device in the Home app. However, with background refreshing, this should not occur too frequently.

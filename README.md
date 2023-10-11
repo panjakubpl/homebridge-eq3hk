@@ -61,6 +61,6 @@ Add the MAC address of your Bluetooth thermostat to the `config.json` file in yo
 
 Due to the nature of Bluetooth connections, you might occasionally see a "No Response" status for the device in the Home app. However, with background refreshing, this should not occur too frequently.
 
----
+## Acknowledgements
 
-Feel free to modify or expand upon this README as needed!
+This plugin utilizes the [eQ-3 radiator thermostat repository](https://github.com/Heckie75/eQ-3-radiator-thermostat/tree/master), specifically the `eq3.exp` file. Many thanks to the author, Heckie75, for their valuable contribution.

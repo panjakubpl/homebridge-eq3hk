@@ -1,6 +1,6 @@
-# Homebridge EQ3 Bluetooth Thermostat Plugin
+# Homebridge Eqiva eQ-3 (EQ3) Bluetooth Thermostat Plugin
 
-This plugin allows you to control EQ3 Bluetooth thermostats via Homebridge.
+This plugin allows you to control Eqiva eQ-3 (EQ3) Bluetooth thermostats via Homebridge.
 
 ## Prerequisites
 
@@ -12,7 +12,7 @@ sudo apt install expect
 
 ## Installation
 
-After installing the plugin, you need to pair your EQ3 Bluetooth thermostat with your system:
+After installing the plugin, you need to pair your Eqiva eQ-3 (EQ3) Bluetooth thermostat with your system:
 
 1. Enter the Bluetooth control:
    ```bash
@@ -55,7 +55,7 @@ Add the MAC address of your Bluetooth thermostat to the `config.json` file in yo
 ]
 ```
 
-- `"cacheDuration": 10` represents the time (in seconds) the plugin will store the last read value. In this example, the last value is cached for 10 seconds. This parameter is optional. If you skip it, the default is set to 300 seconds (5 minutes).
+- `"cacheDuration": 10` represents the time (in seconds) the plugin will store the last read value. In this example, the last value is cached for 10 seconds. This parameter is optional. If you skip it, the default is 300 seconds (5 minutes). This information is also visible in the Home app (accessory settings), Firmware section.
 
 ## Note
 

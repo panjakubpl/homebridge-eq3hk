@@ -12,6 +12,11 @@ sudo apt install expect
 
 ## Installation
 
+Install the plugin using:
+```bash
+npm i homebridge-eq3hk
+```
+
 After installing the plugin, you need to pair your Eqiva eQ-3 (EQ3) Bluetooth thermostat with your system:
 
 1. Enter the Bluetooth control:

@@ -1,4 +1,4 @@
-# Homebridge Eqiva eQ-3 (EQ3) Bluetooth Thermostat Plugin
+### Homebridge Eqiva eQ-3 (EQ3) Bluetooth Thermostat Plugin
 
 This plugin allows you to control Eqiva eQ-3 (EQ3) Bluetooth thermostats via Homebridge.
 
@@ -77,6 +77,58 @@ Add the MAC address of your Bluetooth thermostat to the `config.json` file in yo
 ## Multiple Thermostats
 
 You can add multiple thermostats to your configuration. However, with an increased number of thermostats, you might experience the "No Response" status more frequently in the Home app. This is due to the nature of Bluetooth connections and the fact that the app tries to refresh multiple devices simultaneously. Thanks to caching and background refreshing, this situation can be less bothersome.
+
+## MQTT Integration
+
+### Install and Configure Mosquitto
+
+1. Add the Mosquitto repository:
+
+```sh
+sudo apt-add-repository ppa:mosquitto-dev/mosquitto-ppa
+sudo apt-get update
+```
+
+2. Install Mosquitto and Mosquitto clients:
+
+```sh
+sudo apt-get install mosquitto mosquitto-clients
+```
+
+3. Start and enable Mosquitto:
+
+```sh
+sudo systemctl start mosquitto
+sudo systemctl enable mosquitto
+```
+
+4. Check the status of Mosquitto to ensure it's running correctly:
+
+```sh
+sudo systemctl status mosquitto
+```
+
+### Testing MQTT
+
+To test if MQTT is working correctly:
+
+1. **Subscribe to a topic**:
+   ```sh
+   mosquitto_sub -h localhost -t homebridge/eq3hk/request
+   ```
+
+2. **Publish a test message**:
+   ```sh
+   mosquitto_pub -h localhost -t homebridge/eq3hk/request -m '{"type": "getTemperature", "macAddress": "XX:XX:XX:XX:XX:XX"}'
+   ```
+
+In another terminal, you should see the message being received by the `mosquitto_sub` command. This verifies that MQTT is working as expected.
+
+### Additional Notes on MQTT
+
+- Ensure the MQTT broker is running and accessible.
+- Configure your MQTT client in the Homebridge plugin configuration to point to the correct MQTT broker.
+- Monitor the MQTT topics for responses and errors to ensure reliable communication with your thermostats.
 
 ## Acknowledgements
 

@@ -1,7 +1,8 @@
 const mqtt = require('mqtt');
 const { exec } = require('child_process');
 const client = mqtt.connect('mqtt://localhost');
-const scriptPath = '/var/lib/homebridge/node_modules/homebridge-eq3hk/eq3.exp';
+const path = require('path');
+const scriptPath = path.join(__dirname, 'eq3.exp');
 
 const MAX_RETRIES = 3;
 const RETRY_INTERVAL = 5000; // 5 seconds

@@ -1,0 +1,36 @@
+{
+    "pluginAlias": "EQ3Thermostat",
+    "pluginType": "accessory",
+    "schema": {
+        "type": "object",
+        "properties": {
+            "name": {
+                "title": "Name of the thermostat",
+                "type": "string",
+                "required": true,
+                "default": "Office Thermostat"
+            },
+            "macAddress": {
+                "title": "Bluetooth mac address of the thermostat",
+                "type": "string",
+                "required": true,
+                "format": "mac"
+            }
+        }
+    },
+    "layout": [
+        {
+            "type": "section",
+            "items": [
+                {
+                    "key": "name",
+                    "type": "text"
+                },
+                {
+                    "key": "macAddress",
+                    "type": "text"
+                }
+            ]
+        }
+    ]
+}

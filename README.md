@@ -16,7 +16,21 @@ sudo apt install expect
 
 Install the plugin using:
 ```bash
-npm i homebridge-eq3hk
+sudo npm install --prefix /var/lib/homebridge https://github.com/panjakubpl/homebridge-eq3hk.git
+```
+
+and run
+
+```
+cd /usr/lib/node_modules/homebridge-eq3hk
+npm install
+```
+
+Next install mqtt
+
+```
+cd /usr/lib/node_modules/homebridge-eq3hk
+sudo npm install mqtt
 ```
 
 After installing the plugin, you need to grant execution permissions to the eq3.exp file. This can be done using the chmod command in the terminal. Run the following command:

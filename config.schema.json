@@ -1,3 +1,4 @@
+
 {
     "pluginAlias": "EQ3Thermostat",
     "pluginType": "accessory",
@@ -15,7 +16,13 @@
                 "type": "string",
                 "required": true,
                 "format": "mac"
-            }
+            },
+            "cacheDuration": {
+                "title": "Cache duration (in seconds)",
+				"type": "number",
+				"required": true,
+				"default": 10
+            }			
         }
     },
     "layout": [
@@ -29,7 +36,11 @@
                 {
                     "key": "macAddress",
                     "type": "text"
-                }
+                },
+				{
+				    "key": "cacheDuration",
+				    "type": "number"
+				}
             ]
         }
     ]

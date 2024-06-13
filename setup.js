@@ -5,7 +5,8 @@ const configPath = path.join(process.env.HOME, '.homebridge', 'config.json');
 const defaultConfig = `{
     "accessory": "EQ3Thermostat",
     "name": "Office Thermostat",
-    "macAddress": "XX:XX:XX:XX:XX:XX"
+    "macAddress": "XX:XX:XX:XX:XX:XX",
+	"cacheDuration": 10
 }`;
 
 if (!fs.existsSync(configPath)) {

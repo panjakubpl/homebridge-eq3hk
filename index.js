@@ -1,5 +1,6 @@
 const exec = require('child_process').exec;
 const path = require('path');
+const mqtt = require('mqtt');
 const scriptPath = path.join(__dirname, 'eq3.exp');
 
 let Service, Characteristic;
@@ -15,13 +16,33 @@ class EQ3Thermostat {
 		this.log = log;
 		this.name = config.name;
 		this.macAddress = config.macAddress;
+		this.mqttUrl = config.mqttUrl;
+		this.mqttTopic = config.mqttTopic || 'homebridge/eq3hk';
 		this.lastUpdated = 0;
-
 		this.cacheDuration = (config.cacheDuration || 300) * 1000;
-
 		this.requestCooldown = 5 * 1000; // 5 seconds
 		this.lastRequestTime = 0;
-		this.cachedTemperature = null;
+		this.cachedTemperature = 20.0; // Default value
+		this.client = mqtt.connect(this.mqttUrl);
+
+		this.client.on('connect', () => {
+			this.log('MQTT connected');
+			this.client.subscribe(`${this.mqttTopic}/response`);
+		});
+
+		this.client.on('message', (topic, message) => {
+			if (topic === `${this.mqttTopic}/response`) {
+				const data = JSON.parse(message.toString());
+				if (data.macAddress === this.macAddress) {
+					if (data.type === 'temperature') {
+						this.cachedTemperature = data.value;
+						this.lastUpdated = Date.now();
+					} else if (data.type === 'set') {
+						this.log('Set command acknowledged');
+					}
+				}
+			}
+		});
 
 		this.service = new Service.Thermostat(this.name);
 
@@ -86,28 +107,18 @@ class EQ3Thermostat {
 		}
 
 		if (!this.canSendRequest()) {
-			callback(new Error('Request cooldown active'));
+			callback(null, this.cachedTemperature); // Return cached temperature if request cooldown is active
 			return;
 		}
 
 		this.lastRequestTime = Date.now();
+		this.client.publish(`${this.mqttTopic}/request`, JSON.stringify({
+			type: 'getTemperature',
+			macAddress: this.macAddress
+		}));
 
-		exec(`${scriptPath} ${this.macAddress} status`, (error, stdout) => {
-			if (error) {
-				this.log.error('Error getting current temperature:', error);
-				callback(error);
-			} else {
-				const match = stdout.match(/Temperature:\s*([\d\.]+)°C/);
-				if (match) {
-					this.cachedTemperature = parseFloat(match[1]);
-					this.lastUpdated = Date.now();
-					callback(null, this.cachedTemperature);
-				} else {
-					this.log.error('Unable to extract temperature from the output.');
-					callback(new Error('Unable to read temperature'));
-				}
-			}
-		});
+		// Return cached temperature, MQTT response will update it in the background
+		callback(null, this.cachedTemperature);
 	}
 
 	getTargetTemperature(callback) {
@@ -123,16 +134,15 @@ class EQ3Thermostat {
 	setTargetTemperature(value, callback) {
 		if (value < 4.5) value = 4.5;
 		if (value > 29.5) value = 29.5;
-	
-		exec(`${scriptPath} ${this.macAddress} temp ${value}`, (error) => {
-			if (error) {
-				this.log.error('Error setting temperature:', error);
-				callback(error);
-			} else {
-				this.cachedTemperature = value;
-				callback(null);
-			}
-		});
+
+		this.client.publish(`${this.mqttTopic}/request`, JSON.stringify({
+			type: 'setTemperature',
+			macAddress: this.macAddress,
+			value: value
+		}));
+
+		this.cachedTemperature = value; // Optimistically update cached temperature
+		callback(null);
 	}
 
 	getCurrentHeatingCoolingState(callback) {
@@ -141,7 +151,7 @@ class EQ3Thermostat {
 				callback(error);
 				return;
 			}
-	
+
 			if (temperature === 4.5) {
 				callback(null, Characteristic.CurrentHeatingCoolingState.OFF);
 			} else {
@@ -156,7 +166,7 @@ class EQ3Thermostat {
 				callback(error);
 				return;
 			}
-	
+
 			if (temperature === 4.5) {
 				callback(null, Characteristic.TargetHeatingCoolingState.OFF);
 			} else {
@@ -180,13 +190,12 @@ class EQ3Thermostat {
 				break;
 		}
 
-		exec(`${scriptPath} ${this.macAddress} ${modeCommand}`, (error) => {
-			if (error) {
-				this.log.error('Error setting mode:', error);
-				callback(error);
-			} else {
-				callback(null);
-			}
-		});
+		this.client.publish(`${this.mqttTopic}/request`, JSON.stringify({
+			type: 'setMode',
+			macAddress: this.macAddress,
+			mode: modeCommand
+		}));
+
+		callback(null);
 	}
 }

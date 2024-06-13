@@ -10,7 +10,9 @@
   "keywords": ["homebridge-plugin"],
   "author": "Jakub Chudarek <jch@wdz.net.pl>",
   "license": "ISC",
-  "dependencies": {},
+  "dependencies": {
+    "mqtt": "^4.2.8"
+  },
   "engines": {
     "homebridge": ">=1.0.0",
     "node": ">=10.17.0"

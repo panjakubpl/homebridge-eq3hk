@@ -17,7 +17,15 @@ Install the plugin using:
 npm i homebridge-eq3hk
 ```
 
-After installing the plugin, you need to pair your Eqiva eQ-3 (EQ3) Bluetooth thermostat with your system:
+After installing the plugin, you need to grant execution permissions to the eq3.exp file. This can be done using the chmod command in the terminal. Run the following command:
+
+```sudo chmod +x /var/lib/homebridge/node_modules/homebridge-eq3hk/eq3.exp```
+
+You can also check who is the owner of the file, and ensure that the user under which Homebridge operates has the appropriate permissions. To check the owner and group of the file, use:
+
+```ls -l /var/lib/homebridge/node_modules/homebridge-eq3hk/eq3.exp```
+
+Next, you need to pair your Eqiva eQ-3 (EQ3) Bluetooth thermostat with your system:
 
 1. Enter the Bluetooth control:
    ```bash

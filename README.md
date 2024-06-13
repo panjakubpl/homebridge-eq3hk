@@ -64,10 +64,22 @@ Grant execution permissions to the `eq3.exp` file:
 sudo chmod +x /path/to/homebridge-eq3hk/eq3.exp
 ```
 
+Example:
+
+```bash
+sudo chmod +x /var/lib/homebridge/node_modules/homebridge-eq3hk/eq3.exp
+```
+
 Check the owner of the file and ensure the user running Homebridge has the appropriate permissions:
 
 ```bash
 ls -l /path/to/homebridge-eq3hk/eq3.exp
+```
+
+Example:
+
+```bash
+ls -l /var/lib/homebridge/node_modules/homebridge-eq3hk/eq3.exp
 ```
 
 ### Step 5: Configuration via Homebridge UI
@@ -78,7 +90,8 @@ Example configuration via the Homebridge UI:
 
 - **Name:** Living Room Thermostat
 - **MAC Address:** XX:XX:XX:XX:XX:XX
-
+- **Cache:** 10
+ 
 To add multiple thermostats, simply repeat the process with different MAC addresses.
 
 ### Step 6: Running `mqtt_handler.js` on Startup
@@ -132,7 +145,12 @@ After updating to a new version of the plugin, you must run the following comman
 
 ```bash
 sudo chmod +x /path/to/homebridge-eq3hk/eq3.exp
-ls -l /path/to/homebridge-eq3hk/eq3.exp
+```
+
+Example:
+
+```bash
+sudo chmod +x /var/lib/homebridge/node_modules/homebridge-eq3hk/eq3.exp
 ```
 
 ## Acknowledgements

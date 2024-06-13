@@ -73,6 +73,11 @@ To test if MQTT is working correctly:
    mosquitto_pub -h localhost -t homebridge/eq3hk/request -m '{"type": "getTemperature", "macAddress": "XX:XX:XX:XX:XX:XX"}'
    ```
 
+   or you can use
+   ```sh
+   mosquitto_sub -h localhost -t homebridge/eq3hk/response
+   ```
+
 In another terminal, you should see the message being received by the `mosquitto_sub` command. This verifies that MQTT is working as expected.
 
 #### Additional Notes on MQTT

@@ -126,6 +126,15 @@ To ensure the `mqtt_handler.js` script runs automatically on Raspberry Pi startu
    sudo systemctl status mqtt_handler.service
    ```
 
+## Future Updates
+
+After updating to a new version of the plugin, you must run the following commands:
+
+```bash
+sudo chmod +x /path/to/homebridge-eq3hk/eq3.exp
+ls -l /path/to/homebridge-eq3hk/eq3.exp
+```
+
 ## Acknowledgements
 
 This plugin utilizes the [eQ-3 radiator thermostat repository](https://github.com/Heckie75/eQ-3-radiator-thermostat/tree/master), specifically the `eq3.exp` file. Many thanks to the author, Heckie75, for their valuable contribution.

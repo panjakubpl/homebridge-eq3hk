@@ -86,6 +86,8 @@ ls -l /var/lib/homebridge/node_modules/homebridge-eq3hk/eq3.exp
 
 Configuration is now done via the Homebridge UI, allowing you to add and configure multiple thermostats easily.
 
+<img width="813" alt="Screenshot 2024-09-04 at 23 25 18" src="https://github.com/user-attachments/assets/9a600f6a-a12c-4988-9f2e-9b9eef6ba298">
+
 Example configuration via the Homebridge UI:
 
 - **Name:** Living Room Thermostat

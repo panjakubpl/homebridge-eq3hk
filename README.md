@@ -21,6 +21,7 @@ sudo npm install -g homebridge-eq3hk
 ```
 
 ### Step 2: Set Up MQTT
+When having troubles installing Mosquitto check bottom of the page.
 
 1. Install Mosquitto:
    ```bash
@@ -140,6 +141,18 @@ To ensure the `mqtt_handler.js` script runs automatically on Raspberry Pi startu
    ```bash
    sudo systemctl status mqtt_handler.service
    ```
+
+## Install trouble
+
+`apt-add-repository: not found` after `sudo apt-add-repository ppa:mosquitto-dev/mosquitto-ppa`
+```bash
+sudo apt-get install software-properties-common
+```
+`AttributeError: 'NoneType' object has no attribute 'people'` after `sudo apt-add-repository ppa:mosquitto-dev/mosquitto-ppa`
+```bash
+sudo apt-get install python3-launchpadlib
+```
+Ignore `404  Not Found [IP: 185.125.190.80 443]`
 
 ## Future Updates
 

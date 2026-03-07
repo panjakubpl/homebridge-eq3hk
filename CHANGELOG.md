@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.1] - 2026-03-07
+
+### Fixed
+- **`postinstall` restored** — automatically runs `chmod +x eq3.exp` after install/update using `__dirname` (safe, no hardcoded paths). No more manual permission fix after updates.
+
+### Added
+- **`.npmignore`** — test files excluded from npm package.
+
 ## [2.1.0] - 2026-03-07
 
 ### Fixed

@@ -12,7 +12,7 @@ try {
 }
 
 try {
-  execSync('systemctl restart mqtt_handler.service', { stdio: 'ignore' });
+  execSync('sudo systemctl restart mqtt_handler.service', { stdio: 'ignore' });
   console.log('[homebridge-eq3hk] mqtt_handler.service restarted.');
 } catch (e) {
   // Service may not exist yet on fresh install — not an error

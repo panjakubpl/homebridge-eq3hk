@@ -134,14 +134,6 @@ To ensure the `mqtt_handler.js` script runs automatically on Raspberry Pi startu
    sudo systemctl status mqtt_handler.service
    ```
 
-## Future Updates
-
-After updating to a new version of the plugin, reapply execute permissions:
-
-```bash
-sudo chmod +x /var/lib/homebridge/node_modules/homebridge-eq3hk/eq3.exp
-```
-
 ## Troubleshooting
 
 ### Mosquitto installation issues (Raspberry Pi / Debian Bookworm)

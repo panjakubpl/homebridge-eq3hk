@@ -146,6 +146,36 @@ sudo apt update && sudo apt install mosquitto mosquitto-clients
 
 If you previously tried adding the Mosquitto PPA and encountered errors, you can safely ignore them and use the command above.
 
+### Bluetooth adapter DOWN / `Connection failed` after reboot
+
+If the BT adapter is blocked by rfkill, `eq3.exp` will fail silently. Check:
+
+```bash
+hciconfig hci0
+```
+
+If it shows `DOWN`, unblock and bring it up:
+
+```bash
+sudo bash -c 'echo 0 > /sys/class/rfkill/rfkill0/soft'
+sudo hciconfig hci0 up
+```
+
+To make this permanent across reboots, add to `/etc/rc.local` (before `exit 0`):
+
+```bash
+/bin/bash -c "echo 0 > /sys/class/rfkill/rfkill0/soft" 2>/dev/null
+hciconfig hci0 up 2>/dev/null
+```
+
+### `mqtt_handler` stops working after plugin update
+
+After updating the plugin via Homebridge UI, restart the `mqtt_handler` service:
+
+```bash
+sudo systemctl restart mqtt_handler.service
+```
+
 ### `eq3.exp` permission denied
 
 Run:

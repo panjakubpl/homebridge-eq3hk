@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.1.2] - 2026-03-07
+
+### Fixed
+- **`process.chdir(__dirname)`** in `mqtt_handler.js` — prevents `getcwd() failed` crash after plugin update via Homebridge UI (when npm replaces the plugin directory, the running process loses its working directory).
+
+### Docs
+- README: Bluetooth rfkill troubleshooting (adapter DOWN after reboot)
+- README: mqtt_handler restart guide after plugin update
+
 ## [2.1.1] - 2026-03-07
 
 ### Fixed

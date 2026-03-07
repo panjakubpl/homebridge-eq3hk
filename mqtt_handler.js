@@ -1,6 +1,9 @@
 const mqtt = require('mqtt');
 const { exec } = require('child_process');
 const path = require('path');
+
+process.chdir(__dirname);
+
 const scriptPath = path.join(__dirname, 'eq3.exp');
 
 const MAX_RETRIES = 2;

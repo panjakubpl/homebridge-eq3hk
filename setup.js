@@ -10,3 +10,10 @@ try {
   console.warn(`[homebridge-eq3hk] Could not set eq3.exp permissions automatically.`);
   console.warn(`[homebridge-eq3hk] Run manually: sudo chmod +x ${scriptPath}`);
 }
+
+try {
+  execSync('systemctl restart mqtt_handler.service', { stdio: 'ignore' });
+  console.log('[homebridge-eq3hk] mqtt_handler.service restarted.');
+} catch (e) {
+  // Service may not exist yet on fresh install — not an error
+}

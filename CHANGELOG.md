@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.1.3] - 2026-03-07
+
+### Fixed
+- **`postinstall` auto-restarts `mqtt_handler.service`** — no manual restart needed after plugin update via Homebridge UI.
+
 ## [2.1.2] - 2026-03-07
 
 ### Fixed

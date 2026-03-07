@@ -20,9 +20,9 @@ class EQ3Thermostat {
 		this.mqttTopic = config.mqttTopic || 'homebridge/eq3hk';
 		this.lastUpdated = 0;
 		this.cacheDuration = (config.cacheDuration || 10) * 1000;
-		this.requestCooldown = 5 * 1000; // 5 seconds
+		this.requestCooldown = 5 * 1000;
 		this.lastRequestTime = 0;
-		this.cachedTemperature = 20.0; // Default value
+		this.cachedTemperature = 20.0;
 		this.client = mqtt.connect(this.mqttUrl);
 
 		this.client.on('connect', () => {
@@ -107,7 +107,7 @@ class EQ3Thermostat {
 		}
 
 		if (!this.canSendRequest()) {
-			callback(null, this.cachedTemperature); // Return cached temperature if request cooldown is active
+			callback(null, this.cachedTemperature);
 			return;
 		}
 
@@ -117,7 +117,6 @@ class EQ3Thermostat {
 			macAddress: this.macAddress
 		}));
 
-		// Return cached temperature, MQTT response will update it in the background
 		callback(null, this.cachedTemperature);
 	}
 
@@ -141,7 +140,7 @@ class EQ3Thermostat {
 			value: value
 		}));
 
-		this.cachedTemperature = value; // Optimistically update cached temperature
+		this.cachedTemperature = value;
 		callback(null);
 	}
 
@@ -151,7 +150,6 @@ class EQ3Thermostat {
 				callback(error);
 				return;
 			}
-
 			if (temperature === 4.5) {
 				callback(null, Characteristic.CurrentHeatingCoolingState.OFF);
 			} else {
@@ -166,7 +164,6 @@ class EQ3Thermostat {
 				callback(error);
 				return;
 			}
-
 			if (temperature === 4.5) {
 				callback(null, Characteristic.TargetHeatingCoolingState.OFF);
 			} else {

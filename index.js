@@ -19,7 +19,7 @@ class EQ3Thermostat {
 		this.mqttUrl = config.mqttUrl;
 		this.mqttTopic = config.mqttTopic || 'homebridge/eq3hk';
 		this.lastUpdated = 0;
-		this.cacheDuration = (config.cacheDuration || 300) * 1000;
+		this.cacheDuration = (config.cacheDuration || 10) * 1000;
 		this.requestCooldown = 5 * 1000; // 5 seconds
 		this.lastRequestTime = 0;
 		this.cachedTemperature = 20.0; // Default value

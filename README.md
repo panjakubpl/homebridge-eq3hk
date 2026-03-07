@@ -24,9 +24,8 @@ sudo npm install -g homebridge-eq3hk
 
 1. Install Mosquitto:
    ```bash
-   sudo apt-add-repository ppa:mosquitto-dev/mosquitto-ppa
-   sudo apt-get update
-   sudo apt-get install mosquitto mosquitto-clients
+   sudo apt update
+   sudo apt install mosquitto mosquitto-clients
    sudo systemctl start mosquitto
    sudo systemctl enable mosquitto
    ```
@@ -73,18 +72,12 @@ sudo chmod +x /var/lib/homebridge/node_modules/homebridge-eq3hk/eq3.exp
 Check the owner of the file and ensure the user running Homebridge has the appropriate permissions:
 
 ```bash
-ls -l /path/to/homebridge-eq3hk/eq3.exp
-```
-
-Example:
-
-```bash
 ls -l /var/lib/homebridge/node_modules/homebridge-eq3hk/eq3.exp
 ```
 
 ### Step 5: Configuration via Homebridge UI
 
-Configuration is now done via the Homebridge UI, allowing you to add and configure multiple thermostats easily.
+Configuration is done via the Homebridge UI, allowing you to add and configure multiple thermostats easily.
 
 <img width="813" alt="Screenshot 2024-09-04 at 23 25 18" src="https://github.com/user-attachments/assets/9a600f6a-a12c-4988-9f2e-9b9eef6ba298">
 
@@ -93,7 +86,7 @@ Example configuration via the Homebridge UI:
 - **Name:** Living Room Thermostat
 - **MAC Address:** XX:XX:XX:XX:XX:XX
 - **Cache:** 10
- 
+
 To add multiple thermostats, simply repeat the process with different MAC addresses.
 
 ### Step 6: Running `mqtt_handler.js` on Startup
@@ -123,7 +116,7 @@ To ensure the `mqtt_handler.js` script runs automatically on Raspberry Pi startu
    WantedBy=multi-user.target
    ```
 
-   Replace `/path/to/homebridge-eq3hk` with the actual path to your plugin installation directory.
+   Replace `/path/to/homebridge-eq3hk` with the actual path to your plugin installation directory (typically `/var/lib/homebridge/node_modules/homebridge-eq3hk`).
 
 3. Save and close the file, then reload systemd:
    ```bash
@@ -143,17 +136,34 @@ To ensure the `mqtt_handler.js` script runs automatically on Raspberry Pi startu
 
 ## Future Updates
 
-After updating to a new version of the plugin, you must run the following commands:
-
-```bash
-sudo chmod +x /path/to/homebridge-eq3hk/eq3.exp
-```
-
-Example:
+After updating to a new version of the plugin, reapply execute permissions:
 
 ```bash
 sudo chmod +x /var/lib/homebridge/node_modules/homebridge-eq3hk/eq3.exp
 ```
+
+## Troubleshooting
+
+### Mosquitto installation issues (Raspberry Pi / Debian Bookworm)
+
+Mosquitto 2.x is available directly from the default Debian Bookworm repositories — **no PPA required**. Just use:
+
+```bash
+sudo apt update && sudo apt install mosquitto mosquitto-clients
+```
+
+If you previously tried adding the Mosquitto PPA and encountered errors, you can safely ignore them and use the command above.
+
+### `eq3.exp` permission denied
+
+Run:
+```bash
+sudo chmod +x /var/lib/homebridge/node_modules/homebridge-eq3hk/eq3.exp
+```
+
+### HomeKit shows wrong temperature
+
+The plugin uses a cache (default: 10 seconds). If temperature seems stale, reduce the **Cache Duration** in plugin settings.
 
 ## Acknowledgements
 

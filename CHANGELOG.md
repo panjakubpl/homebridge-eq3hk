@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.2.0] - 2026-04-04
+
+### Changed
+- **Homebridge v2.0 compatibility** — migrated from deprecated `.on('get/set', callback)` to `.onGet(async fn)` / `.onSet(async fn)` API required by Homebridge v2
+- All getter/setter methods (`getCurrentTemperature`, `getTargetTemperature`, `setTargetTemperature`, `getCurrentHeatingCoolingState`, `getTargetHeatingCoolingState`, `setTargetHeatingCoolingState`) are now `async`, returning Promises instead of using Node-style callbacks
+- Updated `engines` to declare support for both Homebridge v1.6+ and v2.0: `"^1.6.0 || ^2.0.0-beta.0"`
+- Required Node.js version updated to `^18.20.4 || ^20.15.1 || ^22`
+
+### Fixed
+- **`updateCache()` bug** — previously called `getCurrentTemperature()` and incorrectly updated `lastUpdated` with stale cached data, causing the cache to never properly expire. Now correctly sends only the MQTT request; `lastUpdated` is updated exclusively by the MQTT message handler when a real response arrives.
+- **JSON.parse safety** — MQTT message handler now wraps `JSON.parse` in try/catch. A malformed or empty broker message no longer crashes the plugin.
+- **`setTargetHeatingCoolingState` unrecognized value** — added `default: return` guard in the mode switch to prevent publishing an MQTT message with `undefined` mode when an unexpected value is received from HomeKit.
+
+### Removed
+- Unused `exec`, `path` and `scriptPath` imports from `index.js` (leftover from original Bluetooth-direct implementation)
+
 ## [2.1.3] - 2026-03-07
 
 ### Fixed

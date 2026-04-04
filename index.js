@@ -1,7 +1,4 @@
-const exec = require('child_process').exec;
-const path = require('path');
 const mqtt = require('mqtt');
-const scriptPath = path.join(__dirname, 'eq3.exp');
 
 let Service, Characteristic;
 
@@ -31,15 +28,20 @@ class EQ3Thermostat {
 		});
 
 		this.client.on('message', (topic, message) => {
-			if (topic === `${this.mqttTopic}/response`) {
-				const data = JSON.parse(message.toString());
-				if (data.macAddress === this.macAddress) {
-					if (data.type === 'temperature') {
-						this.cachedTemperature = data.value;
-						this.lastUpdated = Date.now();
-					} else if (data.type === 'set') {
-						this.log('Set command acknowledged');
-					}
+			if (topic !== `${this.mqttTopic}/response`) return;
+			let data;
+			try {
+				data = JSON.parse(message.toString());
+			} catch (e) {
+				this.log('Invalid MQTT message received');
+				return;
+			}
+			if (data.macAddress === this.macAddress) {
+				if (data.type === 'temperature') {
+					this.cachedTemperature = data.value;
+					this.lastUpdated = Date.now();
+				} else if (data.type === 'set') {
+					this.log('Set command acknowledged');
 				}
 			}
 		});
@@ -58,13 +60,13 @@ class EQ3Thermostat {
 		}, this.cacheDuration);
 	}
 
-	updateCache() {
-		this.getCurrentTemperature((error, temperature) => {
-			if (!error) {
-				this.cachedTemperature = temperature;
-				this.lastUpdated = Date.now();
-			}
-		});
+	async updateCache() {
+		if (!this.canSendRequest()) return;
+		this.lastRequestTime = Date.now();
+		this.client.publish(`${this.mqttTopic}/request`, JSON.stringify({
+			type: 'getTemperature',
+			macAddress: this.macAddress
+		}));
 	}
 
 	isCacheValid() {
@@ -84,31 +86,29 @@ class EQ3Thermostat {
 			.setCharacteristic(Characteristic.FirmwareRevision, `${this.cacheDuration / 1000} seconds`);
 
 		this.service.getCharacteristic(Characteristic.CurrentTemperature)
-			.on('get', this.getCurrentTemperature.bind(this));
+			.onGet(this.getCurrentTemperature.bind(this));
 
 		this.service.getCharacteristic(Characteristic.TargetTemperature)
-			.on('get', this.getTargetTemperature.bind(this))
-			.on('set', this.setTargetTemperature.bind(this));
+			.onGet(this.getTargetTemperature.bind(this))
+			.onSet(this.setTargetTemperature.bind(this));
 
 		this.service.getCharacteristic(Characteristic.CurrentHeatingCoolingState)
-			.on('get', this.getCurrentHeatingCoolingState.bind(this));
+			.onGet(this.getCurrentHeatingCoolingState.bind(this));
 
 		this.service.getCharacteristic(Characteristic.TargetHeatingCoolingState)
-			.on('get', this.getTargetHeatingCoolingState.bind(this))
-			.on('set', this.setTargetHeatingCoolingState.bind(this));
+			.onGet(this.getTargetHeatingCoolingState.bind(this))
+			.onSet(this.setTargetHeatingCoolingState.bind(this));
 
 		return [informationService, this.service];
 	}
 
-	getCurrentTemperature(callback) {
+	async getCurrentTemperature() {
 		if (this.isCacheValid()) {
-			callback(null, this.cachedTemperature);
-			return;
+			return this.cachedTemperature;
 		}
 
 		if (!this.canSendRequest()) {
-			callback(null, this.cachedTemperature);
-			return;
+			return this.cachedTemperature;
 		}
 
 		this.lastRequestTime = Date.now();
@@ -117,20 +117,14 @@ class EQ3Thermostat {
 			macAddress: this.macAddress
 		}));
 
-		callback(null, this.cachedTemperature);
+		return this.cachedTemperature;
 	}
 
-	getTargetTemperature(callback) {
-		this.getCurrentTemperature((error, temperature) => {
-			if (error) {
-				callback(error);
-				return;
-			}
-			callback(null, temperature);
-		});
+	async getTargetTemperature() {
+		return this.getCurrentTemperature();
 	}
 
-	setTargetTemperature(value, callback) {
+	async setTargetTemperature(value) {
 		if (value < 4.5) value = 4.5;
 		if (value > 29.5) value = 29.5;
 
@@ -141,38 +135,23 @@ class EQ3Thermostat {
 		}));
 
 		this.cachedTemperature = value;
-		callback(null);
 	}
 
-	getCurrentHeatingCoolingState(callback) {
-		this.getCurrentTemperature((error, temperature) => {
-			if (error) {
-				callback(error);
-				return;
-			}
-			if (temperature === 4.5) {
-				callback(null, Characteristic.CurrentHeatingCoolingState.OFF);
-			} else {
-				callback(null, Characteristic.CurrentHeatingCoolingState.HEAT);
-			}
-		});
+	async getCurrentHeatingCoolingState() {
+		const temperature = await this.getCurrentTemperature();
+		return temperature === 4.5
+			? Characteristic.CurrentHeatingCoolingState.OFF
+			: Characteristic.CurrentHeatingCoolingState.HEAT;
 	}
 
-	getTargetHeatingCoolingState(callback) {
-		this.getCurrentTemperature((error, temperature) => {
-			if (error) {
-				callback(error);
-				return;
-			}
-			if (temperature === 4.5) {
-				callback(null, Characteristic.TargetHeatingCoolingState.OFF);
-			} else {
-				callback(null, Characteristic.TargetHeatingCoolingState.HEAT);
-			}
-		});
+	async getTargetHeatingCoolingState() {
+		const temperature = await this.getCurrentTemperature();
+		return temperature === 4.5
+			? Characteristic.TargetHeatingCoolingState.OFF
+			: Characteristic.TargetHeatingCoolingState.HEAT;
 	}
 
-	setTargetHeatingCoolingState(value, callback) {
+	async setTargetHeatingCoolingState(value) {
 		let modeCommand;
 		switch (value) {
 			case Characteristic.TargetHeatingCoolingState.OFF:
@@ -185,6 +164,8 @@ class EQ3Thermostat {
 			case Characteristic.TargetHeatingCoolingState.AUTO:
 				modeCommand = 'auto';
 				break;
+			default:
+				return;
 		}
 
 		this.client.publish(`${this.mqttTopic}/request`, JSON.stringify({
@@ -192,7 +173,5 @@ class EQ3Thermostat {
 			macAddress: this.macAddress,
 			mode: modeCommand
 		}));
-
-		callback(null);
 	}
 }

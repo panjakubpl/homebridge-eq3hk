@@ -2,6 +2,16 @@
 
 This plugin allows you to control Eqiva eQ-3 (EQ3) Bluetooth thermostats via Homebridge.
 
+## Homebridge v2.0 Compatibility
+
+This plugin is compatible with both **Homebridge v1.6+** and **Homebridge v2.0**.
+
+As of v2.2.0, the plugin uses the modern `onGet`/`onSet` async API instead of the deprecated callback-based `.on('get/set', ...)` handlers. No configuration changes are required — the update is fully backwards compatible.
+
+**Required versions:**
+- Homebridge: `^1.6.0 || ^2.0.0`
+- Node.js: `^18.20.4 || ^20.15.1 || ^22`
+
 ## Prerequisites
 
 Before installing this plugin, ensure you have the `expect` tool installed:

@@ -12,13 +12,6 @@
   ],
   "author": "Jakub Chudarek <jch@wdz.net.pl>",
   "license": "ISC",
-  "dependencies": {
-    "mqtt": "^4.2.8"
-  },
-  "engines": {
-    "homebridge": "^1.6.0 || ^2.0.0-beta.0",
-    "node": "^18.20.4 || ^20.15.1 || ^22"
-  },
   "repository": {
     "type": "git",
     "url": "https://github.com/panjakubpl/homebridge-eq3hk.git"
@@ -27,6 +20,16 @@
     "url": "https://github.com/panjakubpl/homebridge-eq3hk/issues"
   },
   "homepage": "https://github.com/panjakubpl/homebridge-eq3hk/blob/main/README.md",
+  "dependencies": {
+    "mqtt": "^4.2.8"
+  },
+  "peerDependencies": {
+    "homebridge": "^1.6.0 || ^2.0.0-beta.0"
+  },
+  "engines": {
+    "homebridge": "^1.6.0 || ^2.0.0-beta.0",
+    "node": "^18.20.4 || ^20.15.1 || ^22"
+  },
   "contributors": [
     "Jakub <jakub@wdz.net.pl>",
     "Heckie <https://github.com/Heckie75>"

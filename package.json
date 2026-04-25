@@ -1,6 +1,6 @@
 {
   "name": "homebridge-eq3hk",
-  "version": "2.2.1",
+  "version": "2.2.2",
   "description": "Homebridge plugin for EQ3 Bluetooth thermostats",
   "main": "index.js",
   "scripts": {
@@ -28,7 +28,7 @@
   },
   "engines": {
     "homebridge": "^1.6.0 || ^2.0.0-beta.0",
-    "node": "^18.20.4 || ^20.15.1 || ^22"
+    "node": "^18.20.4 || ^20.15.1 || ^22 || ^24"
   },
   "contributors": [
     "Jakub <jakub@wdz.net.pl>",

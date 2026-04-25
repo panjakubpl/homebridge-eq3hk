@@ -10,7 +10,7 @@ As of v2.2.0, the plugin uses the modern `onGet`/`onSet` async API instead of th
 
 **Required versions:**
 - Homebridge: `^1.6.0 || ^2.0.0`
-- Node.js: `^18.20.4 || ^20.15.1 || ^22`
+- Node.js: `^18.20.4 || ^20.15.1 || ^22 || ^24`
 
 ## Prerequisites
 

@@ -24,6 +24,42 @@ function retryCommand(command, retries, callback) {
   });
 }
 
+// Single-slot serial queue. EQ3 Bluetooth adapter cannot serve concurrent GATT
+// connections — overlapping eq3.exp processes saturate it. Polling jobs are
+// dropped while another job is in flight; user-initiated set jobs replace any
+// queued slot so the latest input wins.
+let inFlight = false;
+let queued = null;
+
+function _resetQueue() {
+  inFlight = false;
+  queued = null;
+}
+
+function enqueueRequest(job) {
+  if (job.priority === 'low' && (inFlight || queued)) {
+    return false;
+  }
+  queued = job;
+  _processNext();
+  return true;
+}
+
+function _processNext() {
+  if (inFlight || !queued) return;
+  inFlight = true;
+  const job = queued;
+  queued = null;
+  retryCommand(job.command, MAX_RETRIES, (error, stdout, stderr) => {
+    try {
+      job.onDone(error, stdout, stderr);
+    } finally {
+      inFlight = false;
+      _processNext();
+    }
+  });
+}
+
 if (require.main === module) {
   const client = mqtt.connect('mqtt://localhost');
 
@@ -34,7 +70,13 @@ if (require.main === module) {
 
   client.on('message', (topic, message) => {
     console.log('Received message:', message.toString());
-    const request = JSON.parse(message.toString());
+    let request;
+    try {
+      request = JSON.parse(message.toString());
+    } catch (e) {
+      console.error('Invalid JSON in MQTT message:', e.message);
+      return;
+    }
 
     if (!validateMac(request.macAddress)) {
       console.error('Invalid MAC address:', request.macAddress);
@@ -47,68 +89,83 @@ if (require.main === module) {
     }
 
     if (request.type === 'getTemperature') {
-      retryCommand(`${scriptPath} ${request.macAddress} status`, MAX_RETRIES, (error, stdout) => {
-        if (error) {
-          console.error('Error executing getTemperature:', error);
-          client.publish('homebridge/eq3hk/response', JSON.stringify({
-            macAddress: request.macAddress,
-            type: 'error',
-            error: error.message
-          }));
-        } else {
-          const match = stdout.match(/Temperature:\s*([\d\.]+)°C/);
-          if (match) {
-            const temperature = parseFloat(match[1]);
-            console.log(`Current temperature for MAC address ${request.macAddress}: ${temperature}°C`);
-            client.publish('homebridge/eq3hk/response', JSON.stringify({
-              macAddress: request.macAddress,
-              type: 'temperature',
-              value: temperature
-            }));
-          } else {
-            console.error('Temperature match not found in stdout:', stdout);
+      const accepted = enqueueRequest({
+        command: `${scriptPath} ${request.macAddress} status`,
+        priority: 'low',
+        onDone: (error, stdout) => {
+          if (error) {
+            console.error('Error executing getTemperature:', error);
             client.publish('homebridge/eq3hk/response', JSON.stringify({
               macAddress: request.macAddress,
               type: 'error',
-              error: 'Temperature match not found'
+              error: error.message
+            }));
+          } else {
+            const match = stdout.match(/Temperature:\s*([\d\.]+)°C/);
+            if (match) {
+              const temperature = parseFloat(match[1]);
+              console.log(`Current temperature for MAC address ${request.macAddress}: ${temperature}°C`);
+              client.publish('homebridge/eq3hk/response', JSON.stringify({
+                macAddress: request.macAddress,
+                type: 'temperature',
+                value: temperature
+              }));
+            } else {
+              console.error('Temperature match not found in stdout:', stdout);
+              client.publish('homebridge/eq3hk/response', JSON.stringify({
+                macAddress: request.macAddress,
+                type: 'error',
+                error: 'Temperature match not found'
+              }));
+            }
+          }
+        }
+      });
+      if (!accepted) {
+        console.log('Dropped getTemperature — BLE busy');
+      }
+    } else if (request.type === 'setTemperature') {
+      enqueueRequest({
+        command: `${scriptPath} ${request.macAddress} temp ${request.value}`,
+        priority: 'high',
+        onDone: (error) => {
+          if (error) {
+            console.error('Error executing setTemperature:', error);
+            client.publish('homebridge/eq3hk/response', JSON.stringify({
+              macAddress: request.macAddress,
+              type: 'error',
+              error: error.message
+            }));
+          } else {
+            client.publish('homebridge/eq3hk/response', JSON.stringify({
+              macAddress: request.macAddress,
+              type: 'set'
             }));
           }
         }
       });
-    } else if (request.type === 'setTemperature') {
-      retryCommand(`${scriptPath} ${request.macAddress} temp ${request.value}`, MAX_RETRIES, (error) => {
-        if (error) {
-          console.error('Error executing setTemperature:', error);
-          client.publish('homebridge/eq3hk/response', JSON.stringify({
-            macAddress: request.macAddress,
-            type: 'error',
-            error: error.message
-          }));
-        } else {
-          client.publish('homebridge/eq3hk/response', JSON.stringify({
-            macAddress: request.macAddress,
-            type: 'set'
-          }));
-        }
-      });
     } else if (request.type === 'setMode') {
-      retryCommand(`${scriptPath} ${request.macAddress} ${request.mode}`, MAX_RETRIES, (error) => {
-        if (error) {
-          console.error('Error executing setMode:', error);
-          client.publish('homebridge/eq3hk/response', JSON.stringify({
-            macAddress: request.macAddress,
-            type: 'error',
-            error: error.message
-          }));
-        } else {
-          client.publish('homebridge/eq3hk/response', JSON.stringify({
-            macAddress: request.macAddress,
-            type: 'set'
-          }));
+      enqueueRequest({
+        command: `${scriptPath} ${request.macAddress} ${request.mode}`,
+        priority: 'high',
+        onDone: (error) => {
+          if (error) {
+            console.error('Error executing setMode:', error);
+            client.publish('homebridge/eq3hk/response', JSON.stringify({
+              macAddress: request.macAddress,
+              type: 'error',
+              error: error.message
+            }));
+          } else {
+            client.publish('homebridge/eq3hk/response', JSON.stringify({
+              macAddress: request.macAddress,
+              type: 'set'
+            }));
+          }
         }
       });
     }
   });
 }
 
-module.exports = { validateMac, retryCommand };
+module.exports = { validateMac, retryCommand, enqueueRequest, _resetQueue };

@@ -20,6 +20,8 @@ class EQ3Thermostat {
 		this.requestCooldown = 5 * 1000;
 		this.lastRequestTime = 0;
 		this.cachedTemperature = 20.0;
+		this.pendingSetUntil = 0;
+		this.pendingSetGraceMs = 30 * 1000;
 		this.client = mqtt.connect(this.mqttUrl);
 
 		this.client.on('connect', () => {
@@ -38,6 +40,10 @@ class EQ3Thermostat {
 			}
 			if (data.macAddress === this.macAddress) {
 				if (data.type === 'temperature') {
+					if (Date.now() < this.pendingSetUntil) {
+						this.log(`Ignoring polling response (${data.value}°C) — within set grace period`);
+						return;
+					}
 					this.cachedTemperature = data.value;
 					this.lastUpdated = Date.now();
 				} else if (data.type === 'set') {
@@ -135,6 +141,7 @@ class EQ3Thermostat {
 		}));
 
 		this.cachedTemperature = value;
+		this.pendingSetUntil = Date.now() + this.pendingSetGraceMs;
 	}
 
 	async getCurrentHeatingCoolingState() {

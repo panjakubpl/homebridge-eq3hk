@@ -374,6 +374,41 @@ describe('MQTT message handler', () => {
     expect(acc.cachedTemperature).toBe(21.5);
     expect(acc.lastUpdated).toBeGreaterThan(0);
   });
+
+  test('IGNORES temperature message during pending-set grace period (preserves user target)', async () => {
+    const acc = makeAccessory({});
+    const handler = getMessageHandler(acc);
+    await acc.setTargetTemperature(19.0);
+    expect(acc.cachedTemperature).toBe(19.0);
+    handler('homebridge/eq3hk/response', Buffer.from(JSON.stringify({
+      macAddress: 'AA:BB:CC:DD:EE:FF',
+      type: 'temperature',
+      value: 23.5
+    })));
+    expect(acc.cachedTemperature).toBe(19.0);
+  });
+
+  test('accepts temperature message after grace period elapses', async () => {
+    const acc = makeAccessory({});
+    const handler = getMessageHandler(acc);
+    await acc.setTargetTemperature(19.0);
+    jest.advanceTimersByTime(30 * 1000 + 1);
+    handler('homebridge/eq3hk/response', Buffer.from(JSON.stringify({
+      macAddress: 'AA:BB:CC:DD:EE:FF',
+      type: 'temperature',
+      value: 23.5
+    })));
+    expect(acc.cachedTemperature).toBe(23.5);
+  });
+});
+
+describe('setTargetTemperature pending-set grace period', () => {
+  test('records pendingSetUntil timestamp', async () => {
+    const acc = makeAccessory({});
+    const before = Date.now();
+    await acc.setTargetTemperature(20.0);
+    expect(acc.pendingSetUntil).toBeGreaterThanOrEqual(before + 30 * 1000);
+  });
 });
 
 // ─── setTargetHeatingCoolingState — default case ─────────────────────────────

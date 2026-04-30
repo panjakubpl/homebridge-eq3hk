@@ -146,6 +146,44 @@ To ensure the `mqtt_handler.js` script runs automatically on Raspberry Pi startu
 
 ## Troubleshooting
 
+### `Thermostat hasn't responded after sync request` — needs re-pair (firmware 1.46+)
+
+**Symptom:** the plugin used to work, then suddenly every command times out with `ERROR: Thermostat hasn't responded after sync request in time (10 sec.)` and `mqtt_handler.service` logs continuous `Command failed ... code: 255`. Home app and the thermostat LCD stop syncing in both directions.
+
+**Cause:** eQ-3 firmware 1.46+ (auto-pushed via the calorBT mobile app since 2024) requires an authenticated/encrypted BLE link before it accepts CCC writes (notification subscribe). The bond stored on the Pi may be lost after a Bookworm BlueZ security update or after the thermostat performs a silent OTA. Without a fresh bond, notifications never arrive and every command fails — even though connect/read/write at GATT level still work.
+
+**Fix:** re-pair the thermostat with passkey. From v2.3.0 onward the plugin spawns `gatttool` with `--sec-level=medium` so it transparently re-encrypts the link on every reconnect once the bond exists.
+
+Quick path — guided helper:
+
+```bash
+sudo /var/lib/homebridge/node_modules/homebridge-eq3hk/scripts/pair.sh XX:XX:XX:XX:XX:XX
+```
+
+Manual path:
+
+```bash
+sudo systemctl stop mqtt_handler
+sudo bluetoothctl
+power on
+agent KeyboardOnly
+default-agent
+# Now physically long-press the thermostat wheel for ~3 seconds.
+# Wait for the LCD to show "PAIr" and a 6-digit PIN.
+pair XX:XX:XX:XX:XX:XX
+# When prompted "Enter passkey (number in 0-999999):" type the 6 digits
+# from the LCD without any dash, e.g. "739527" not "739-527".
+trust XX:XX:XX:XX:XX:XX
+disconnect XX:XX:XX:XX:XX:XX
+quit
+
+bluetoothctl info XX:XX:XX:XX:XX:XX | grep -E 'Paired|Bonded|Trusted'
+# Must show: Paired: yes, Bonded: yes, Trusted: yes
+sudo systemctl start mqtt_handler
+```
+
+The thermostat only stays in pairable advertising mode for ~30 seconds after the PIN appears — work fast, and re-press the wheel if `pair` says `Device not available`. See [`docs/2026-04-30-bluez-firmware-bond-required.md`](docs/2026-04-30-bluez-firmware-bond-required.md) for the full forensic write-up and links to upstream issue threads.
+
 ### Mosquitto installation issues (Raspberry Pi / Debian Bookworm)
 
 Mosquitto 2.x is available directly from the default Debian Bookworm repositories — **no PPA required**. Just use:

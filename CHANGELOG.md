@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.3.0] - 2026-04-30
+
+### Fixed
+- **Notifications no longer arrive on eQ-3 firmware 1.46+** — `eq3.exp` now spawns `gatttool` with `--sec-level=medium`, which triggers an encrypted-link upgrade on connect. Without it, gatttool's default `low` security level meant CCC writes (notification subscribe at handle 0x0430) were silently dropped by the thermostat firmware, every command timed out with `Thermostat hasn't responded after sync request in time`, and `mqtt_handler` exited 255 on every poll. Affects all installations after the eQ-3 firmware OTA to 1.46+/1.48 (auto-pushed via the calorBT mobile app since 2024) or after BlueZ wiped the bond store during a Bookworm security update.
+
+### Added
+- **`scripts/pair.sh`** — guided re-pair helper for users hitting the FW 1.46+ requirement. Walks through `bluetoothctl pair` with passkey entry, verifies `Bonded: yes`, and restarts `mqtt_handler.service` automatically.
+- **`docs/2026-04-30-bluez-firmware-bond-required.md`** — full forensic write-up: symptom, root cause (CCCD requires authenticated link), diagnostic steps, canonical fix, and references to upstream Heckie75 / python-eq3bt / dbuezas threads.
+
+### Changed
+- README troubleshooting section reordered to put the **"Notifications dead after firmware update — needs re-pair"** entry first, since it is now the most common failure mode reported by users.
+
+### Required action for existing users
+If your plugin was working and suddenly started failing with `Thermostat hasn't responded after sync request in time`:
+1. Update plugin to 2.3.0 (`mqtt_handler.service` will auto-restart).
+2. Verify bond state: `bluetoothctl info <MAC> | grep -E 'Paired|Bonded'`.
+3. If `Bonded: no` — run `sudo /var/lib/homebridge/node_modules/homebridge-eq3hk/scripts/pair.sh <MAC>` (or follow the `bluetoothctl pair` recipe in README).
+
 ## [2.2.0] - 2026-04-04
 
 ### Changed

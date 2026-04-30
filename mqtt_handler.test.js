@@ -9,7 +9,7 @@ jest.mock('mqtt', () => ({
 jest.mock('child_process', () => ({ exec: jest.fn() }));
 
 const { exec } = require('child_process');
-const { validateMac, retryCommand } = require('./mqtt_handler');
+const { validateMac, retryCommand, enqueueRequest, _resetQueue } = require('./mqtt_handler');
 
 // ─── validateMac ─────────────────────────────────────────────────────────────
 
@@ -101,5 +101,93 @@ describe('retryCommand', () => {
     // Should not retry before 3 seconds
     expect(exec).toHaveBeenCalledTimes(1);
     jest.advanceTimersByTime(3000);
+  });
+});
+
+// ─── enqueueRequest (mutex / serial queue) ───────────────────────────────────
+
+describe('enqueueRequest', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    exec.mockReset();
+    _resetQueue();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  test('runs single getTemperature request immediately', () => {
+    exec.mockImplementation(() => {});
+    enqueueRequest({ command: 'cmd1', priority: 'low', onDone: () => {} });
+    expect(exec).toHaveBeenCalledTimes(1);
+  });
+
+  test('drops second getTemperature while first is in flight', () => {
+    exec.mockImplementation(() => {});
+    enqueueRequest({ command: 'cmd1', priority: 'low', onDone: () => {} });
+    enqueueRequest({ command: 'cmd2', priority: 'low', onDone: () => {} });
+    expect(exec).toHaveBeenCalledTimes(1);
+  });
+
+  test('queues setTemperature while getTemperature is in flight, runs it after', () => {
+    let firstCb;
+    exec.mockImplementationOnce((cmd, cb) => { firstCb = cb; });
+    exec.mockImplementationOnce((cmd, cb) => {});
+
+    enqueueRequest({ command: 'get-cmd', priority: 'low', onDone: () => {} });
+    enqueueRequest({ command: 'set-cmd', priority: 'high', onDone: () => {} });
+    expect(exec).toHaveBeenCalledTimes(1);
+
+    firstCb(null, 'Temperature: 20.0°C', '');
+    jest.runOnlyPendingTimers();
+    expect(exec).toHaveBeenCalledTimes(2);
+    expect(exec.mock.calls[1][0]).toBe('set-cmd');
+  });
+
+  test('replaces queued high-priority job with newer high-priority (latest user input wins)', () => {
+    let firstCb;
+    exec.mockImplementation((cmd, cb) => {
+      if (!firstCb) firstCb = cb;
+    });
+
+    enqueueRequest({ command: 'get-cmd', priority: 'low', onDone: () => {} });
+    enqueueRequest({ command: 'set-19', priority: 'high', onDone: () => {} });
+    enqueueRequest({ command: 'set-20', priority: 'high', onDone: () => {} });
+    expect(exec).toHaveBeenCalledTimes(1);
+
+    firstCb(null, 'Temperature: 20.0°C', '');
+    jest.runOnlyPendingTimers();
+    expect(exec).toHaveBeenCalledTimes(2);
+    expect(exec.mock.calls[1][0]).toBe('set-20');
+  });
+
+  test('high-priority preempts queued low-priority', () => {
+    let firstCb;
+    exec.mockImplementation((cmd, cb) => {
+      if (!firstCb) firstCb = cb;
+    });
+
+    enqueueRequest({ command: 'get-1', priority: 'low', onDone: () => {} });
+    enqueueRequest({ command: 'get-2', priority: 'low', onDone: () => {} });
+    enqueueRequest({ command: 'set-19', priority: 'high', onDone: () => {} });
+
+    firstCb(null, 'Temperature: 20.0°C', '');
+    jest.runOnlyPendingTimers();
+    expect(exec).toHaveBeenCalledTimes(2);
+    expect(exec.mock.calls[1][0]).toBe('set-19');
+  });
+
+  test('onDone callback receives stdout from successful run', (done) => {
+    exec.mockImplementation((cmd, cb) => cb(null, 'Temperature: 21.0°C', ''));
+    enqueueRequest({
+      command: 'cmd',
+      priority: 'low',
+      onDone: (error, stdout) => {
+        expect(error).toBeNull();
+        expect(stdout).toBe('Temperature: 21.0°C');
+        done();
+      }
+    });
   });
 });

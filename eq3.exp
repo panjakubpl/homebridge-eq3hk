@@ -1257,10 +1257,15 @@ proc doCommand {} {
 }
 
 parseArgv $argv
+# --sec-level=medium triggers an encrypted link upgrade on connect, which is
+# required by eQ-3 firmware 1.46+ before CCC writes (notification subscribe)
+# are accepted. Without it, gatttool's connect uses sec-level=low and the
+# device silently drops the CCC enable, so notifications never arrive.
+# See docs/2026-04-30-bluez-firmware-bond-required.md.
 if { $hci != "" } {
-  spawn -noecho /usr/bin/gatttool -I -i $hci
+  spawn -noecho /usr/bin/gatttool -I --sec-level=medium -i $hci
 } else {
-  spawn -noecho /usr/bin/gatttool -I
+  spawn -noecho /usr/bin/gatttool -I --sec-level=medium
 }
 doCommand
 disconnect

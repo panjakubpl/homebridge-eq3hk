@@ -411,6 +411,84 @@ describe('setTargetTemperature pending-set grace period', () => {
   });
 });
 
+// ─── OFF-intent window: HomeKit hub re-sync protection ───────────────────────
+//
+// iOS HomeKit hub treats TargetHeatingCoolingState and TargetTemperature as
+// independent characteristics. After a user presses OFF in Home app, the hub
+// may later re-push both at once: setTargetHeatingCoolingState(OFF) +
+// setTargetTemperature(<remembered target, e.g. 23.5>). eQ-3 valves have no
+// independent on/off — TargetTemperature IS the on/off state (4.5 = off).
+// Without protection, the second message overrides the first and the valve
+// silently turns back on. The OFF-intent window suppresses setTargetTemperature
+// for a short period after explicit OFF so the hub's re-sync cannot wake the
+// thermostat.
+
+describe('OFF-intent window', () => {
+  test('setTargetHeatingCoolingState(OFF) records offIntentUntil ≥10s in the future', async () => {
+    const acc = makeAccessory({});
+    const before = Date.now();
+    await acc.setTargetHeatingCoolingState(OFF);
+    expect(acc.offIntentUntil).toBeGreaterThanOrEqual(before + 10 * 1000);
+  });
+
+  test('setTargetHeatingCoolingState(OFF) optimistically sets cachedTemperature to 4.5', async () => {
+    const acc = makeAccessory({});
+    acc.cachedTemperature = 23.5;
+    await acc.setTargetHeatingCoolingState(OFF);
+    expect(acc.cachedTemperature).toBe(4.5);
+  });
+
+  test('setTargetTemperature within OFF-intent window does NOT publish to MQTT', async () => {
+    const acc = makeAccessory({});
+    const client = getMqttClient();
+    await acc.setTargetHeatingCoolingState(OFF);
+    client.publish.mockClear();
+    await acc.setTargetTemperature(23.5);
+    expect(client.publish).not.toHaveBeenCalled();
+  });
+
+  test('setTargetTemperature within OFF-intent window does NOT change cachedTemperature', async () => {
+    const acc = makeAccessory({});
+    await acc.setTargetHeatingCoolingState(OFF);
+    expect(acc.cachedTemperature).toBe(4.5);
+    await acc.setTargetTemperature(23.5);
+    expect(acc.cachedTemperature).toBe(4.5);
+  });
+
+  test('setTargetTemperature after OFF-intent window publishes normally', async () => {
+    const acc = makeAccessory({});
+    const client = getMqttClient();
+    await acc.setTargetHeatingCoolingState(OFF);
+    jest.advanceTimersByTime(10 * 1000 + 1);
+    client.publish.mockClear();
+    await acc.setTargetTemperature(22.0);
+    expect(client.publish).toHaveBeenCalledWith(
+      'homebridge/eq3hk/request',
+      expect.stringContaining('"value":22')
+    );
+  });
+
+  test('setTargetHeatingCoolingState(HEAT) clears offIntentUntil', async () => {
+    const acc = makeAccessory({});
+    await acc.setTargetHeatingCoolingState(OFF);
+    await acc.setTargetHeatingCoolingState(HEAT);
+    expect(acc.offIntentUntil).toBe(0);
+  });
+
+  test('setTargetTemperature after HEAT (following OFF) publishes normally', async () => {
+    const acc = makeAccessory({});
+    const client = getMqttClient();
+    await acc.setTargetHeatingCoolingState(OFF);
+    await acc.setTargetHeatingCoolingState(HEAT);
+    client.publish.mockClear();
+    await acc.setTargetTemperature(22.0);
+    expect(client.publish).toHaveBeenCalledWith(
+      'homebridge/eq3hk/request',
+      expect.stringContaining('"type":"setTemperature"')
+    );
+  });
+});
+
 // ─── setTargetHeatingCoolingState — default case ─────────────────────────────
 
 describe('setTargetHeatingCoolingState — unknown value', () => {

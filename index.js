@@ -22,6 +22,8 @@ class EQ3Thermostat {
 		this.cachedTemperature = 20.0;
 		this.pendingSetUntil = 0;
 		this.pendingSetGraceMs = 30 * 1000;
+		this.offIntentUntil = 0;
+		this.offIntentGraceMs = 10 * 1000;
 		this.client = mqtt.connect(this.mqttUrl);
 
 		this.client.on('connect', () => {
@@ -134,6 +136,15 @@ class EQ3Thermostat {
 		if (value < 4.5) value = 4.5;
 		if (value > 29.5) value = 29.5;
 
+		// HomeKit hub re-sync protection: when user explicitly pressed OFF, the
+		// hub may re-push its remembered TargetTemperature within milliseconds.
+		// Honour the OFF intent and drop the temperature write so the valve
+		// stays at 4.5°C instead of waking up to the hub's stale target.
+		if (Date.now() < this.offIntentUntil) {
+			this.log(`Ignoring setTargetTemperature(${value}) — within OFF-intent window (HomeKit hub re-sync push)`);
+			return;
+		}
+
 		this.client.publish(`${this.mqttTopic}/request`, JSON.stringify({
 			type: 'setTemperature',
 			macAddress: this.macAddress,
@@ -163,13 +174,18 @@ class EQ3Thermostat {
 		switch (value) {
 			case Characteristic.TargetHeatingCoolingState.OFF:
 				modeCommand = 'off';
+				// Open OFF-intent window so setTargetTemperature pushes that arrive
+				// from the HomeKit hub right after are dropped. Also flip the local
+				// cache to 4.5°C immediately so HomeKit's CurrentHeatingCoolingState
+				// returns OFF without waiting for the next polling response.
+				this.cachedTemperature = 4.5;
+				this.offIntentUntil = Date.now() + this.offIntentGraceMs;
 				break;
 			case Characteristic.TargetHeatingCoolingState.HEAT:
 			case Characteristic.TargetHeatingCoolingState.COOL:
-				modeCommand = 'manual';
-				break;
 			case Characteristic.TargetHeatingCoolingState.AUTO:
-				modeCommand = 'auto';
+				modeCommand = value === Characteristic.TargetHeatingCoolingState.AUTO ? 'auto' : 'manual';
+				this.offIntentUntil = 0;
 				break;
 			default:
 				return;

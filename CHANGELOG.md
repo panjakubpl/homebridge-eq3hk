@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.4.0-beta.0] - 2026-05-21
+
+### Fixed
+- **Thermostat silently turns itself back on after being set OFF** — root cause was the iOS HomeKit hub re-syncing both `TargetHeatingCoolingState` and `TargetTemperature` together: a few milliseconds after the user's OFF command, the hub re-pushes its remembered target temperature (e.g. 23.5°C). eQ-3 valves treat `TargetTemperature` as the on/off state itself (4.5°C ≡ off), so the second message immediately overrode the OFF and the valve warmed back up. Most visible after the RPi3 rebooted and homebridge reconnected to the hub, but the same `setMode(off) + setTemperature(23.5)` pair can arrive at any hub-driven state sync — confirmed by `mqtt_handler` logs showing both messages within the same second.
+
+### Added
+- **OFF-intent window** in `index.js` — `setTargetHeatingCoolingState(OFF)` now also flips `cachedTemperature` to 4.5°C immediately (so HomeKit's heating state characteristic returns OFF without waiting for the next polling response) and opens a 10-second `offIntentUntil` window during which any `setTargetTemperature` push is dropped before reaching MQTT. The window is cleared by an explicit `setTargetHeatingCoolingState(HEAT|COOL|AUTO)`, so user-initiated mode transitions back to ON keep working normally.
+- 7 new Jest tests (`OFF-intent window` describe block in `index.test.js`) covering window timing, optimistic cache flip, MQTT suppression, cache invariance, post-window normal behaviour, and HEAT-clears-window transitions.
+
+### Notes for review
+- This is a beta release. Recommended path: install side-by-side with the store version on RPi3, point HomeKit at the beta accessory, observe across at least two scheduled reboots, then promote to `2.4.0`.
+
 ## [2.3.0] - 2026-04-30
 
 ### Fixed

@@ -184,6 +184,14 @@ sudo systemctl start mqtt_handler
 
 The thermostat only stays in pairable advertising mode for ~30 seconds after the PIN appears — work fast, and re-press the wheel if `pair` says `Device not available`. See [`docs/2026-04-30-bluez-firmware-bond-required.md`](docs/2026-04-30-bluez-firmware-bond-required.md) for the full forensic write-up and links to upstream issue threads.
 
+### Thermostat silently turns itself back on after being set OFF
+
+**Symptom:** you set the thermostat to OFF in the Home app; some time later (often the next morning, or after the Pi reboots) the Home app shows it heating again at the previous target temperature (e.g. 23.5°C). Setting OFF again works briefly, then it flips back on its own.
+
+**Cause:** the iOS HomeKit hub re-syncs `TargetHeatingCoolingState` and `TargetTemperature` together whenever it reconciles accessory state. A few milliseconds after the OFF push, the hub also pushes its remembered target temperature. eQ-3 valves treat `TargetTemperature` as the on/off state itself (4.5°C ≡ off), so the second message immediately overrode the OFF and the valve warmed back up. Visible in `mqtt_handler` logs as a `setMode(off)` and `setTemperature(<previous-target>)` pair arriving within the same second.
+
+**Fix:** update to 2.4.0 or later. The plugin now opens a 10-second OFF-intent window after each `setTargetHeatingCoolingState(OFF)` call during which incoming `setTargetTemperature` pushes are dropped before reaching MQTT. The window is cleared by an explicit transition back to HEAT/COOL/AUTO, so user-initiated turn-on still works normally. Confirm the fix is active by grepping the Homebridge log after the next OFF; you should see lines like `[Kaloryfer] Ignoring setTargetTemperature(23.5) — within OFF-intent window (HomeKit hub re-sync push)`.
+
 ### Mosquitto installation issues (Raspberry Pi / Debian Bookworm)
 
 Mosquitto 2.x is available directly from the default Debian Bookworm repositories — **no PPA required**. Just use:

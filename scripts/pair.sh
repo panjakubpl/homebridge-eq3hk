@@ -8,7 +8,7 @@ set -u
 MAC="${1:-}"
 if [[ -z "$MAC" ]]; then
   echo "Usage: sudo $0 <thermostat-mac>" >&2
-  echo "Example: sudo $0 00:1A:22:12:62:A9" >&2
+  echo "Example: sudo $0 XX:XX:XX:XX:XX:XX" >&2
   exit 1
 fi
 

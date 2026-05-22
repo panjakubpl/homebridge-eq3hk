@@ -67,20 +67,20 @@ sudo bluetoothctl
 > power on
 > agent on
 > default-agent
-> remove 00:1A:22:12:62:A9      # purge any stale entry (will say "not available" if none)
+> remove XX:XX:XX:XX:XX:XX      # purge any stale entry (will say "not available" if none)
 > scan on
 
 # At this point: physically interact with the thermostat.
 # Long-press the wheel/button for ~3 seconds until the LCD shows "PAIr"
 # followed by a 6-digit PIN. The thermostat is now in pairable advertising mode.
 
-> pair 00:1A:22:12:62:A9        # type the 6-digit PIN when bluetoothctl asks
-> trust 00:1A:22:12:62:A9
-> disconnect 00:1A:22:12:62:A9
+> pair XX:XX:XX:XX:XX:XX        # type the 6-digit PIN when bluetoothctl asks
+> trust XX:XX:XX:XX:XX:XX
+> disconnect XX:XX:XX:XX:XX:XX
 > quit
 
 # Verify
-bluetoothctl info 00:1A:22:12:62:A9
+bluetoothctl info XX:XX:XX:XX:XX:XX
 # Must show: Paired: yes, Bonded: yes, Trusted: yes
 
 sudo systemctl start mqtt_handler
@@ -95,7 +95,7 @@ If re-pairing is impractical (mounted radiator, frequent battery changes, multip
 ```bash
 git clone https://github.com/dbuezas/eq3-flashing
 cd eq3-flashing
-python3 flash_firmware.py 00:1A:22:12:62:A9 1.48 --noauth
+python3 flash_firmware.py XX:XX:XX:XX:XX:XX 1.48 --noauth
 ```
 
 This requires the device be currently reachable (so it must work at GATT level — i.e., before the bond is lost, or while in pair mode).
@@ -113,7 +113,7 @@ Versioning: this is a documentation + UX fix only, no protocol change. Patch (2.
 
 ## Session log (2026-04-30)
 
-Investigation steps taken on `pi@192.168.0.241` (RPi3, Debian 12, BlueZ 5.66):
+Investigation steps taken on a Raspberry Pi 3 host (Debian 12 / BlueZ 5.66):
 
 1. Verified `mosquitto`, `mqtt_handler`, `homebridge`, plugin v2.2.2 all active. `hci0 UP RUNNING`. Plugin chain alive — mqtt_handler receives requests but `eq3.exp` exits 255.
 2. journalctl shows last success 2026-04-28 17:40:49, then 8414 consecutive errors over 24 h.
@@ -131,7 +131,7 @@ Investigation steps taken on `pi@192.168.0.241` (RPi3, Debian 12, BlueZ 5.66):
 
 After user completes the bluetoothctl pair flow:
 
-1. Verify `bluetoothctl info 00:1A:22:12:62:A9` → `Paired: yes, Bonded: yes`.
+1. Verify `bluetoothctl info XX:XX:XX:XX:XX:XX` → `Paired: yes, Bonded: yes`.
 2. Restart `mqtt_handler.service`.
 3. Watch `journalctl -u mqtt_handler -f` for `Current temperature for MAC address ...: NN.N°C`.
 4. Verify Home app: change setpoint, watch LCD update; rotate dial on thermostat, watch Home app update.

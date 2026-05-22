@@ -12,15 +12,59 @@ As of v2.2.0, the plugin uses the modern `onGet`/`onSet` async API instead of th
 - Homebridge: `^1.6.0 || ^2.0.0`
 - Node.js: `^18.20.4 || ^20.15.1 || ^22 || ^24`
 
-## Prerequisites
+## Quick Install (Raspberry Pi / Debian)
+
+The plugin ships with a one-shot installer that handles every prerequisite
+(`expect`, `mosquitto`, the npm install itself, the Bluetooth pair, the
+`mqtt_handler` systemd service) and finishes with a copy-pasteable
+Homebridge UI accessory snippet:
+
+```bash
+sudo npm install -g homebridge-eq3hk
+sudo bash /usr/lib/node_modules/homebridge-eq3hk/scripts/install.sh
+```
+
+Already installed the plugin through the Homebridge UI? Just run the
+installer from the UI's install location:
+
+```bash
+sudo bash /var/lib/homebridge/node_modules/homebridge-eq3hk/scripts/install.sh
+```
+
+**Preview without touching anything:**
+
+```bash
+bash /usr/lib/node_modules/homebridge-eq3hk/scripts/install.sh --dry-run
+```
+
+The installer is idempotent — re-running is safe; every step detects
+existing state and skips when nothing's needed. Flags worth knowing:
+
+| Flag | Effect |
+| --- | --- |
+| `--dry-run` | Print every action, change nothing. |
+| `--mac AA:BB:…` | Skip the interactive MAC prompt. |
+| `--skip-pair` | Skip Bluetooth pair (when the thermostat is already bonded). |
+| `--yes`, `-y` | Assume "yes" for confirmations (non-interactive). |
+| `--help`, `-h` | Show usage and exit. |
+
+When the installer finishes, you'll have everything in place except the
+final accessory configuration in the Homebridge UI — paste the snippet it
+prints, restart Homebridge, done.
+
+## Manual Install (advanced)
+
+Use this only if the Quick Install above doesn't fit your setup (non-Debian
+distribution, unusual Homebridge install path, you want explicit control of
+every step). The installer performs exactly these steps in this order.
+
+### Prerequisites
 
 Before installing this plugin, ensure you have the `expect` tool installed:
 
 ```bash
 sudo apt install expect
 ```
-
-## Installation
 
 ### Step 1: Install the Plugin
 

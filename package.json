@@ -10,7 +10,7 @@
   "keywords": [
     "homebridge-plugin"
   ],
-  "author": "Jakub Chudarek <jch@wdz.net.pl>",
+  "author": "Jakub <jakub@wdz.net.pl>",
   "license": "ISC",
   "repository": {
     "type": "git",
@@ -31,7 +31,6 @@
     "node": "^18.20.4 || ^20.15.1 || ^22 || ^24"
   },
   "contributors": [
-    "Jakub <jakub@wdz.net.pl>",
     "Heckie <https://github.com/Heckie75>"
   ],
   "devDependencies": {

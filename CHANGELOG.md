@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.5.0] - 2026-05-23
+
+### Added
+- **One-shot installer (`scripts/install.sh`)** — collapses the historic six-step manual setup (apt prerequisites, npm install, bluetoothctl pair, hand-written systemd unit) into a single bash command. Idempotent: every step detects existing state and skips when nothing's needed. Flags: `--dry-run` (preview every action without changes), `--mac` (skip interactive prompt), `--skip-pair` (already bonded), `--yes` (unattended), `--help`. Supports `NO_COLOR`, non-tty environments, and is sourced by the test suite via a `BASH_SOURCE` guard so individual functions are unit-testable.
+- **README Quick Install section** at the top of the readme — single command for new users; the historic six-step procedure is preserved below under "Manual Install (advanced)" for users on non-Debian hosts or with unusual layouts.
+- **42-assertion bash test suite (`tests/install.test.sh`)** — covers `validate_mac` (including shell-injection attempts), `parse_args` (including the H1 regression: `--mac --some-flag` must reject the next flag as a value), `usage`/`--help`/`-h`, unknown-flag handling, dry-run banner and no-`→ sudo` execution guarantee, and `render_systemd_unit` smoke. Zero dependencies (no bats, no jest); plain bash with assert helpers.
+- **Senior code-review pass folded in before merge** — HIGH (3), MEDIUM (5) and select LOW findings addressed: parser refuses flag-as-value for `--mac`, existing systemd unit ExecStart is compared and rewritten when stale, cascade failures in apt and systemd halt the run, `User=root` resolution prompts for confirmation, `--dry-run` previews the full systemd unit body, summary loudly warns when MAC is a placeholder, mosquitto unit-file existence is checked before `is-enabled`/`is-active`, and the test suite was extended with regression coverage for the parser edge cases.
+
+### Notes
+- Installer is opt-in; existing installations work unchanged. Users on Homebridge UI plugin manager can run the installer from `/var/lib/homebridge/node_modules/homebridge-eq3hk/scripts/install.sh`. Users who installed globally can run from `/usr/lib/node_modules/homebridge-eq3hk/scripts/install.sh`. Both invocations behave identically — the installer auto-detects which path actually exists.
+
 ## [2.4.0] - 2026-05-22
 
 ### Fixed

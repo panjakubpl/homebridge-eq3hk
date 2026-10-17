@@ -1,3 +1,4 @@
 *.test.js
 node_modules/
 .gitignore
+docs/screen.png

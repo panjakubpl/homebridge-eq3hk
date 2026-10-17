@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [2.6.0] - 2026-10-17
 
 ### Added
 - **Extra logging option** — new `debug` checkbox under **Advanced** in the Homebridge UI settings (`config.schema.json`, default off). When on, the plugin logs every MQTT request and response for the thermostat and tags requests with `debug: true`; `mqtt_handler` then logs the `eq3.exp` command with full stdout/stderr for those requests.

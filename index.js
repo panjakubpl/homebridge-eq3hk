@@ -48,8 +48,10 @@ class EQ3Thermostat {
 						this.log(`Ignoring polling response (${data.value}°C) — within set grace period`);
 						return;
 					}
+					const changed = data.value !== this.cachedTemperature;
 					this.cachedTemperature = data.value;
 					this.lastUpdated = Date.now();
+					if (changed) this.pushToHomeKit(data.value);
 				} else if (data.type === 'set') {
 					this.log('Set command acknowledged');
 				}
@@ -68,6 +70,18 @@ class EQ3Thermostat {
 		setInterval(() => {
 			this.updateCache();
 		}, this.cacheDuration);
+	}
+
+	// HomeKit only reads characteristics on demand. Push changes made on the
+	// thermostat itself so the Home app and automations see them without a refresh.
+	pushToHomeKit(temperature) {
+		const state = temperature === 4.5
+			? Characteristic.TargetHeatingCoolingState.OFF
+			: Characteristic.TargetHeatingCoolingState.HEAT;
+		this.service.updateCharacteristic(Characteristic.TargetTemperature, temperature);
+		this.service.updateCharacteristic(Characteristic.CurrentTemperature, temperature);
+		this.service.updateCharacteristic(Characteristic.TargetHeatingCoolingState, state);
+		this.service.updateCharacteristic(Characteristic.CurrentHeatingCoolingState, state);
 	}
 
 	publishRequest(payload) {

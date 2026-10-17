@@ -313,6 +313,8 @@ sudo chmod +x /var/lib/homebridge/node_modules/homebridge-eq3hk/eq3.exp
 
 The plugin uses a cache (default: 10 seconds). If temperature seems stale, reduce the **Cache Duration** in plugin settings.
 
+Since 2.6.1 changes made on the thermostat itself are pushed to the Home app within one polling interval. On 2.6.0 and older the Home app only showed them after it re-read the accessory (e.g. after restarting the app).
+
 ## Acknowledgements
 
 This plugin utilizes the [eQ-3 radiator thermostat repository](https://github.com/Heckie75/eQ-3-radiator-thermostat/tree/master), specifically the `eq3.exp` file. Many thanks to the author, Heckie75, for their valuable contribution.

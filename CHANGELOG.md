@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.6.1] - 2026-10-17
+
+### Fixed
+- **Changes made on the thermostat did not show up in the Home app until the app was restarted** — the plugin polled the thermostat into its cache but never told HomeKit, which only reads characteristics on demand. When a polled value differs from the cache, the plugin now pushes `TargetTemperature`, `CurrentTemperature`, `TargetHeatingCoolingState` and `CurrentHeatingCoolingState` via `updateCharacteristic`, so the Home app and automations follow the thermostat within one polling interval. Values ignored by the 30 s post-set grace period are not pushed.
+- 5 new Jest tests covering push on change, HEAT/OFF state mapping, no push when unchanged, and no push during the grace period.
+
 ## [2.6.0] - 2026-10-17
 
 ### Added

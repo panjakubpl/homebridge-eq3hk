@@ -14,9 +14,11 @@ const mockGetCharacteristic = jest.fn().mockReturnValue({
   onSet: jest.fn().mockReturnThis(),
   setProps: jest.fn().mockReturnThis(),
 });
+const mockUpdateCharacteristic = jest.fn();
 const mockThermostatService = {
   setCharacteristic: mockSetCharacteristic,
   getCharacteristic: mockGetCharacteristic,
+  updateCharacteristic: mockUpdateCharacteristic,
 };
 const mockInfoService = { setCharacteristic: mockSetCharacteristic };
 
@@ -590,5 +592,53 @@ describe('config.schema.json', () => {
     const advanced = schema.layout.find((l) => l.title === 'Advanced');
     expect(advanced).toMatchObject({ type: 'section', expandable: true, expanded: false });
     expect(advanced.items.map((i) => i.key || i)).toContain('debug');
+  });
+});
+
+// ─── push updates to HomeKit ─────────────────────────────────────────────────
+
+describe('pushing polled changes to HomeKit', () => {
+  const sendTemperature = (value) => {
+    const handler = getMqttClient().on.mock.calls.find((c) => c[0] === 'message')[1];
+    handler('homebridge/eq3hk/response', Buffer.from(JSON.stringify({
+      macAddress: 'AA:BB:CC:DD:EE:FF', type: 'temperature', value,
+    })));
+  };
+
+  test('pushes target and current temperature when the polled value changed', () => {
+    makeAccessory({});
+    sendTemperature(23);
+    expect(mockUpdateCharacteristic).toHaveBeenCalledWith(Characteristic.TargetTemperature, 23);
+    expect(mockUpdateCharacteristic).toHaveBeenCalledWith(Characteristic.CurrentTemperature, 23);
+  });
+
+  test('pushes HEAT states for a normal temperature', () => {
+    makeAccessory({});
+    sendTemperature(23);
+    expect(mockUpdateCharacteristic).toHaveBeenCalledWith(Characteristic.TargetHeatingCoolingState, HEAT);
+    expect(mockUpdateCharacteristic).toHaveBeenCalledWith(Characteristic.CurrentHeatingCoolingState, HEAT);
+  });
+
+  test('pushes OFF states when the thermostat reports 4.5°C', () => {
+    makeAccessory({});
+    sendTemperature(4.5);
+    expect(mockUpdateCharacteristic).toHaveBeenCalledWith(Characteristic.TargetHeatingCoolingState, OFF);
+    expect(mockUpdateCharacteristic).toHaveBeenCalledWith(Characteristic.CurrentHeatingCoolingState, OFF);
+  });
+
+  test('does not push when the polled value equals the cached one', () => {
+    makeAccessory({});
+    sendTemperature(23);
+    mockUpdateCharacteristic.mockClear();
+    sendTemperature(23);
+    expect(mockUpdateCharacteristic).not.toHaveBeenCalled();
+  });
+
+  test('does not push a polled value that is ignored by the set grace period', async () => {
+    const acc = makeAccessory({});
+    await acc.setTargetTemperature(21);
+    mockUpdateCharacteristic.mockClear();
+    sendTemperature(15);
+    expect(mockUpdateCharacteristic).not.toHaveBeenCalled();
   });
 });

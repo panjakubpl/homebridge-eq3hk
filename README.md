@@ -140,6 +140,7 @@ Example configuration via the Homebridge UI:
 - **Name:** Living Room Thermostat
 - **MAC Address:** XX:XX:XX:XX:XX:XX
 - **Cache:** 10
+- **Advanced → Extra logging:** off by default; see [Extra logging](#extra-logging) when troubleshooting
 
 To add multiple thermostats, simply repeat the process with different MAC addresses.
 
@@ -189,6 +190,31 @@ To ensure the `mqtt_handler.js` script runs automatically on Raspberry Pi startu
    ```
 
 ## Troubleshooting
+
+### Every command fails after a reboot (`Connection refused`, exit 255) — `bluetooth.service` not running
+
+**Symptom:** after the Pi reboots, `mqtt_handler` logs `Error executing getTemperature: ... eq3.exp ... status` on every poll and the Home app stops reacting, even though `bluetoothctl info <MAC>` (once bluetoothd is running) still shows `Paired: yes, Bonded: yes` and the thermostat is visible in a BLE scan.
+
+**Cause:** the bond keys live in `/var/lib/bluetooth`, but only `bluetoothd` loads them into the kernel. If `bluetooth.service` is not enabled, nothing loads them after a reboot, the kernel refuses LE connections (`gatttool` reports `Connection refused (111)`; no `LE Create Connection` appears in `btmon`) and the thermostat looks dead. Replacing the thermostat batteries is unrelated.
+
+**Fix:**
+
+```bash
+systemctl is-enabled bluetooth      # must print "enabled"
+sudo systemctl enable --now bluetooth
+sudo systemctl restart mqtt_handler
+```
+
+Since 2.6.0 `mqtt_handler` checks `systemctl is-active bluetooth` after a failed command and logs this fix once per failure streak.
+
+### Extra logging
+
+In the Homebridge UI open the plugin settings, expand **Advanced** and tick **Extra logging** (`"debug": true` in `config.json`). Then:
+
+- Homebridge log: every MQTT request sent to the helper and every response (including errors) for that thermostat, prefixed `[debug]`.
+- `journalctl -u mqtt_handler`: the exact `eq3.exp` command with its full stdout and stderr, for requests that carry the flag.
+
+Leave it off in normal use; it logs on every poll.
 
 ### `Thermostat hasn't responded after sync request` — needs re-pair (firmware 1.46+)
 

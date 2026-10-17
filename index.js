@@ -17,6 +17,7 @@ class EQ3Thermostat {
 		this.mqttTopic = config.mqttTopic || 'homebridge/eq3hk';
 		this.lastUpdated = 0;
 		this.cacheDuration = (config.cacheDuration || 10) * 1000;
+		this.debug = config.debug === true;
 		this.requestCooldown = 5 * 1000;
 		this.lastRequestTime = 0;
 		this.cachedTemperature = 20.0;
@@ -41,6 +42,7 @@ class EQ3Thermostat {
 				return;
 			}
 			if (data.macAddress === this.macAddress) {
+				if (this.debug) this.log(`[debug] response: ${JSON.stringify(data)}`);
 				if (data.type === 'temperature') {
 					if (Date.now() < this.pendingSetUntil) {
 						this.log(`Ignoring polling response (${data.value}°C) — within set grace period`);
@@ -68,13 +70,19 @@ class EQ3Thermostat {
 		}, this.cacheDuration);
 	}
 
+	publishRequest(payload) {
+		const message = JSON.stringify(this.debug ? { ...payload, debug: true } : payload);
+		if (this.debug) this.log(`[debug] request: ${message}`);
+		this.client.publish(`${this.mqttTopic}/request`, message);
+	}
+
 	async updateCache() {
 		if (!this.canSendRequest()) return;
 		this.lastRequestTime = Date.now();
-		this.client.publish(`${this.mqttTopic}/request`, JSON.stringify({
+		this.publishRequest({
 			type: 'getTemperature',
 			macAddress: this.macAddress
-		}));
+		});
 	}
 
 	isCacheValid() {
@@ -120,10 +128,10 @@ class EQ3Thermostat {
 		}
 
 		this.lastRequestTime = Date.now();
-		this.client.publish(`${this.mqttTopic}/request`, JSON.stringify({
+		this.publishRequest({
 			type: 'getTemperature',
 			macAddress: this.macAddress
-		}));
+		});
 
 		return this.cachedTemperature;
 	}
@@ -145,11 +153,11 @@ class EQ3Thermostat {
 			return;
 		}
 
-		this.client.publish(`${this.mqttTopic}/request`, JSON.stringify({
+		this.publishRequest({
 			type: 'setTemperature',
 			macAddress: this.macAddress,
 			value: value
-		}));
+		});
 
 		this.cachedTemperature = value;
 		this.pendingSetUntil = Date.now() + this.pendingSetGraceMs;
@@ -191,10 +199,10 @@ class EQ3Thermostat {
 				return;
 		}
 
-		this.client.publish(`${this.mqttTopic}/request`, JSON.stringify({
+		this.publishRequest({
 			type: 'setMode',
 			macAddress: this.macAddress,
 			mode: modeCommand
-		}));
+		});
 	}
 }

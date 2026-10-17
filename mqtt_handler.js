@@ -24,6 +24,30 @@ function retryCommand(command, retries, callback) {
   });
 }
 
+const BLUETOOTH_HINT = 'bluetooth.service is not running, so the kernel has no bond keys for the thermostat ' +
+  'and BLE connections fail after a reboot. Fix: sudo systemctl enable --now bluetooth';
+
+function checkBluetooth(callback) {
+  exec('systemctl is-active bluetooth', (error) => callback(!error));
+}
+
+// The hint is logged once per failure streak, not on every 10 s poll.
+let bluetoothHintShown = false;
+
+function noteBleSuccess() {
+  bluetoothHintShown = false;
+}
+
+function logBleFailure(label, error) {
+  console.error(`Error executing ${label}:`, error);
+  if (bluetoothHintShown) return;
+  checkBluetooth((active) => {
+    if (active || bluetoothHintShown) return;
+    bluetoothHintShown = true;
+    console.error(BLUETOOTH_HINT);
+  });
+}
+
 // Single-slot serial queue. EQ3 Bluetooth adapter cannot serve concurrent GATT
 // connections — overlapping eq3.exp processes saturate it. Polling jobs are
 // dropped while another job is in flight; user-initiated set jobs replace any
@@ -51,6 +75,9 @@ function _processNext() {
   const job = queued;
   queued = null;
   retryCommand(job.command, MAX_RETRIES, (error, stdout, stderr) => {
+    if (job.debug) {
+      console.log(`[debug] ${job.command} -> ${error ? `FAILED (${error.message})` : 'ok'}\nstdout: ${stdout}\nstderr: ${stderr}`);
+    }
     try {
       job.onDone(error, stdout, stderr);
     } finally {
@@ -92,15 +119,17 @@ if (require.main === module) {
       const accepted = enqueueRequest({
         command: `${scriptPath} ${request.macAddress} status`,
         priority: 'low',
+        debug: request.debug === true,
         onDone: (error, stdout) => {
           if (error) {
-            console.error('Error executing getTemperature:', error);
+            logBleFailure('getTemperature', error);
             client.publish('homebridge/eq3hk/response', JSON.stringify({
               macAddress: request.macAddress,
               type: 'error',
               error: error.message
             }));
           } else {
+            noteBleSuccess();
             const match = stdout.match(/Temperature:\s*([\d\.]+)°C/);
             if (match) {
               const temperature = parseFloat(match[1]);
@@ -128,15 +157,17 @@ if (require.main === module) {
       enqueueRequest({
         command: `${scriptPath} ${request.macAddress} temp ${request.value}`,
         priority: 'high',
+        debug: request.debug === true,
         onDone: (error) => {
           if (error) {
-            console.error('Error executing setTemperature:', error);
+            logBleFailure('setTemperature', error);
             client.publish('homebridge/eq3hk/response', JSON.stringify({
               macAddress: request.macAddress,
               type: 'error',
               error: error.message
             }));
           } else {
+            noteBleSuccess();
             client.publish('homebridge/eq3hk/response', JSON.stringify({
               macAddress: request.macAddress,
               type: 'set'
@@ -148,15 +179,17 @@ if (require.main === module) {
       enqueueRequest({
         command: `${scriptPath} ${request.macAddress} ${request.mode}`,
         priority: 'high',
+        debug: request.debug === true,
         onDone: (error) => {
           if (error) {
-            console.error('Error executing setMode:', error);
+            logBleFailure('setMode', error);
             client.publish('homebridge/eq3hk/response', JSON.stringify({
               macAddress: request.macAddress,
               type: 'error',
               error: error.message
             }));
           } else {
+            noteBleSuccess();
             client.publish('homebridge/eq3hk/response', JSON.stringify({
               macAddress: request.macAddress,
               type: 'set'
@@ -168,4 +201,7 @@ if (require.main === module) {
   });
 }
 
-module.exports = { validateMac, retryCommand, enqueueRequest, _resetQueue };
+module.exports = {
+  validateMac, retryCommand, enqueueRequest, _resetQueue,
+  checkBluetooth, logBleFailure, noteBleSuccess, BLUETOOTH_HINT,
+};

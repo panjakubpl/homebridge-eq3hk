@@ -22,7 +22,13 @@
 				"type": "number",
 				"required": true,
 				"default": 10
-            }			
+            },
+            "debug": {
+                "title": "Extra logging",
+                "description": "Log every request to the thermostat and its full response, including eq3.exp output. Use when troubleshooting.",
+                "type": "boolean",
+                "default": false
+            }
         }
     },
     "layout": [
@@ -41,6 +47,15 @@
 				    "key": "cacheDuration",
 				    "type": "number"
 				}
+            ]
+        },
+        {
+            "type": "section",
+            "title": "Advanced",
+            "expandable": true,
+            "expanded": false,
+            "items": [
+                "debug"
             ]
         }
     ]

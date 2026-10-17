@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **Extra logging option** — new `debug` checkbox under **Advanced** in the Homebridge UI settings (`config.schema.json`, default off). When on, the plugin logs every MQTT request and response for the thermostat and tags requests with `debug: true`; `mqtt_handler` then logs the `eq3.exp` command with full stdout/stderr for those requests.
+- **Bluetooth service diagnosis** — when an `eq3.exp` command fails, `mqtt_handler` runs `systemctl is-active bluetooth` and, if bluetoothd is down, logs one actionable line (`sudo systemctl enable --now bluetooth`) per failure streak instead of leaving only a bare exit-255 stack trace.
+- README troubleshooting sections for both.
+
+### Notes
+- Root cause found while debugging: with `bluetooth.service` disabled, the kernel has no bond keys after a reboot and refuses LE connections, so every command fails until bluetoothd is started. Installs made with `scripts/install.sh` are not affected (the generated unit has `Wants=bluetooth.service`).
+
 ## [2.5.0] - 2026-05-23
 
 ### Added

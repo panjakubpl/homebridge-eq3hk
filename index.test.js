@@ -527,3 +527,68 @@ describe('onGet/onSet registration', () => {
     expect(onSetMock).toHaveBeenCalledTimes(1);
   });
 });
+
+// ─── debug option ────────────────────────────────────────────────────────────
+
+describe('debug option', () => {
+  const publishedPayloads = (acc) =>
+    getMqttClient().publish.mock.calls.map((c) => JSON.parse(c[1]));
+
+  const sendResponse = (payload) => {
+    const handler = getMqttClient().on.mock.calls.find((c) => c[0] === 'message')[1];
+    handler('homebridge/eq3hk/response', Buffer.from(JSON.stringify(payload)));
+  };
+
+  test('flags polling requests with debug:true when enabled', async () => {
+    const acc = makeAccessory({ debug: true });
+    await acc.updateCache();
+    expect(publishedPayloads(acc)[0]).toMatchObject({ type: 'getTemperature', debug: true });
+  });
+
+  test('flags setTemperature requests with debug:true when enabled', async () => {
+    const acc = makeAccessory({ debug: true });
+    await acc.setTargetTemperature(21);
+    expect(publishedPayloads(acc)[0]).toMatchObject({ type: 'setTemperature', debug: true });
+  });
+
+  test('flags setMode requests with debug:true when enabled', async () => {
+    const acc = makeAccessory({ debug: true });
+    await acc.setTargetHeatingCoolingState(OFF);
+    expect(publishedPayloads(acc)[0]).toMatchObject({ type: 'setMode', debug: true });
+  });
+
+  test('does not add a debug key when disabled', async () => {
+    const acc = makeAccessory({});
+    await acc.updateCache();
+    await acc.setTargetTemperature(21);
+    for (const payload of publishedPayloads(acc)) {
+      expect(payload).not.toHaveProperty('debug');
+    }
+  });
+
+  test('logs error responses for this thermostat when enabled', () => {
+    const acc = makeAccessory({ debug: true });
+    sendResponse({ macAddress: 'AA:BB:CC:DD:EE:FF', type: 'error', error: 'Command failed: eq3.exp' });
+    expect(acc.log).toHaveBeenCalledWith(expect.stringContaining('Command failed: eq3.exp'));
+  });
+
+  test('does not log error responses when disabled', () => {
+    const acc = makeAccessory({});
+    sendResponse({ macAddress: 'AA:BB:CC:DD:EE:FF', type: 'error', error: 'Command failed: eq3.exp' });
+    expect(acc.log).not.toHaveBeenCalled();
+  });
+});
+
+describe('config.schema.json', () => {
+  const schema = require('./config.schema.json');
+
+  test('declares a boolean debug property defaulting to false', () => {
+    expect(schema.schema.properties.debug).toMatchObject({ type: 'boolean', default: false });
+  });
+
+  test('places debug in a collapsed Advanced section', () => {
+    const advanced = schema.layout.find((l) => l.title === 'Advanced');
+    expect(advanced).toMatchObject({ type: 'section', expandable: true, expanded: false });
+    expect(advanced.items.map((i) => i.key || i)).toContain('debug');
+  });
+});

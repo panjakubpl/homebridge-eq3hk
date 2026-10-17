@@ -9,7 +9,10 @@ jest.mock('mqtt', () => ({
 jest.mock('child_process', () => ({ exec: jest.fn() }));
 
 const { exec } = require('child_process');
-const { validateMac, retryCommand, enqueueRequest, _resetQueue } = require('./mqtt_handler');
+const {
+  validateMac, retryCommand, enqueueRequest, _resetQueue,
+  checkBluetooth, logBleFailure, noteBleSuccess, BLUETOOTH_HINT,
+} = require('./mqtt_handler');
 
 // ─── validateMac ─────────────────────────────────────────────────────────────
 
@@ -189,5 +192,108 @@ describe('enqueueRequest', () => {
         done();
       }
     });
+  });
+});
+
+// ─── bluetooth service diagnostics ───────────────────────────────────────────
+
+describe('checkBluetooth', () => {
+  beforeEach(() => exec.mockReset());
+
+  test('reports active when systemctl is-active succeeds', (done) => {
+    exec.mockImplementation((cmd, cb) => cb(null, 'active\n', ''));
+    checkBluetooth((active) => {
+      expect(exec.mock.calls[0][0]).toBe('systemctl is-active bluetooth');
+      expect(active).toBe(true);
+      done();
+    });
+  });
+
+  test('reports inactive when systemctl is-active exits non-zero', (done) => {
+    exec.mockImplementation((cmd, cb) => cb(new Error('exit 3'), 'inactive\n', ''));
+    checkBluetooth((active) => {
+      expect(active).toBe(false);
+      done();
+    });
+  });
+});
+
+describe('logBleFailure', () => {
+  let errorSpy;
+
+  beforeEach(() => {
+    exec.mockReset();
+    noteBleSuccess();
+    errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => errorSpy.mockRestore());
+
+  const hintCalls = () => errorSpy.mock.calls.filter((c) => c[0] === BLUETOOTH_HINT);
+
+  test('logs an actionable hint when bluetooth.service is not running', () => {
+    exec.mockImplementation((cmd, cb) => cb(new Error('exit 3'), 'inactive\n', ''));
+    logBleFailure('getTemperature', new Error('Command failed'));
+    expect(hintCalls()).toHaveLength(1);
+    expect(BLUETOOTH_HINT).toMatch(/systemctl enable --now bluetooth/);
+  });
+
+  test('does not log the hint when bluetooth.service is running', () => {
+    exec.mockImplementation((cmd, cb) => cb(null, 'active\n', ''));
+    logBleFailure('getTemperature', new Error('Command failed'));
+    expect(hintCalls()).toHaveLength(0);
+  });
+
+  test('logs the hint only once until a success resets it', () => {
+    exec.mockImplementation((cmd, cb) => cb(new Error('exit 3'), 'inactive\n', ''));
+    logBleFailure('getTemperature', new Error('x'));
+    logBleFailure('getTemperature', new Error('x'));
+    expect(hintCalls()).toHaveLength(1);
+
+    noteBleSuccess();
+    logBleFailure('getTemperature', new Error('x'));
+    expect(hintCalls()).toHaveLength(2);
+  });
+});
+
+// ─── debug logging ───────────────────────────────────────────────────────────
+
+describe('enqueueRequest debug logging', () => {
+  let logSpy;
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    exec.mockReset();
+    _resetQueue();
+    logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+    jest.useRealTimers();
+  });
+
+  const logged = () => logSpy.mock.calls.map((c) => c.join(' ')).join('\n');
+
+  test('logs command, stdout and stderr of a finished job when debug is set', () => {
+    exec.mockImplementation((cmd, cb) => cb(null, 'STDOUT-MARKER', 'STDERR-MARKER'));
+    enqueueRequest({ command: 'eq3.exp status', priority: 'low', debug: true, onDone: () => {} });
+    expect(logged()).toContain('eq3.exp status');
+    expect(logged()).toContain('STDOUT-MARKER');
+    expect(logged()).toContain('STDERR-MARKER');
+  });
+
+  test('logs stdout of a failed job when debug is set', () => {
+    exec.mockImplementation((cmd, cb) => cb(new Error('boom'), 'FAIL-OUT', ''));
+    enqueueRequest({ command: 'c', priority: 'high', debug: true, onDone: () => {} });
+    jest.advanceTimersByTime(3000);
+    jest.advanceTimersByTime(3000);
+    expect(logged()).toContain('FAIL-OUT');
+  });
+
+  test('stays silent about stdout when debug is not set', () => {
+    exec.mockImplementation((cmd, cb) => cb(null, 'STDOUT-MARKER', ''));
+    enqueueRequest({ command: 'c', priority: 'low', onDone: () => {} });
+    expect(logged()).not.toContain('STDOUT-MARKER');
   });
 });

@@ -11,6 +11,21 @@ module.exports = (homebridge) => {
 };
 
 class EQ3Thermostat {
+	parseRetryMinutes(configured) {
+		if (configured === undefined || configured === null) return 15;
+		const isNumeric = typeof configured === 'number'
+			|| (typeof configured === 'string' && configured.trim() !== '');
+		const minutes = isNumeric ? Number(configured) : NaN;
+		if (ALLOWED_RETRY_MINUTES.includes(minutes)) return minutes;
+		const msg = `setRetryMinutes ${JSON.stringify(configured)} is not one of ${ALLOWED_RETRY_MINUTES.join(', ')}; using 15`;
+		if (typeof this.log.warn === 'function') {
+			this.log.warn(msg);
+		} else {
+			this.log(msg);
+		}
+		return 15;
+	}
+
 	constructor(log, config) {
 		this.log = log;
 		this.name = config.name;
@@ -20,10 +35,7 @@ class EQ3Thermostat {
 		this.lastUpdated = 0;
 		this.cacheDuration = (config.cacheDuration || 10) * 1000;
 		this.debug = config.debug === true;
-		const configuredRetryMinutes = config.setRetryMinutes;
-		this.setRetryMinutes = ALLOWED_RETRY_MINUTES.includes(configuredRetryMinutes)
-			? configuredRetryMinutes
-			: 15;
+		this.setRetryMinutes = this.parseRetryMinutes(config.setRetryMinutes);
 		this.requestCooldown = 5 * 1000;
 		this.lastRequestTime = 0;
 		this.cachedTemperature = 20.0;

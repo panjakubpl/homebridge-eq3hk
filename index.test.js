@@ -97,11 +97,50 @@ describe('setRetryMinutes', () => {
   test.each([
     [0, 15],
     [7, 15],
-    ['15', 15],
+    ['7', 15],
+    ['abc', 15],
+    ['', 15],
+    [true, 15],
     [null, 15],
   ])('falls back to 15 for invalid value %p', (input, expected) => {
     const acc = makeAccessory({ setRetryMinutes: input });
     expect(acc.setRetryMinutes).toBe(expected);
+  });
+
+  test.each([
+    ['15', 15],
+    ['60', 60],
+    [' 5 ', 5],
+  ])('accepts numeric string %p', (input, expected) => {
+    const acc = makeAccessory({ setRetryMinutes: input });
+    expect(acc.setRetryMinutes).toBe(expected);
+  });
+
+  test('warns via log.warn when a configured value is not allowed', () => {
+    const log = jest.fn();
+    log.warn = jest.fn();
+    const acc = new registeredClass(log, {
+      name: 'T', macAddress: 'AA:BB:CC:DD:EE:FF', mqttUrl: 'mqtt://localhost', setRetryMinutes: 7,
+    });
+    expect(acc.setRetryMinutes).toBe(15);
+    expect(log.warn).toHaveBeenCalledWith(expect.stringMatching(/setRetryMinutes.*7.*15/));
+  });
+
+  test('warns via log when log.warn is not available', () => {
+    const log = jest.fn();
+    new registeredClass(log, {
+      name: 'T', macAddress: 'AA:BB:CC:DD:EE:FF', mqttUrl: 'mqtt://localhost', setRetryMinutes: '7',
+    });
+    expect(log).toHaveBeenCalledWith(expect.stringMatching(/setRetryMinutes.*7.*15/));
+  });
+
+  test.each([undefined, 15, '30'])('does not warn for %p', (input) => {
+    const log = jest.fn();
+    log.warn = jest.fn();
+    new registeredClass(log, {
+      name: 'T', macAddress: 'AA:BB:CC:DD:EE:FF', mqttUrl: 'mqtt://localhost', setRetryMinutes: input,
+    });
+    expect(log.warn).not.toHaveBeenCalled();
   });
 });
 

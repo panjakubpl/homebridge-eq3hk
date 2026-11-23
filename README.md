@@ -20,6 +20,8 @@ After updating the plugin, restart **both Homebridge and the `mqtt_handler` syst
 sudo systemctl restart mqtt_handler.service
 ```
 
+The retry window and the warning logged when a change cannot be applied both depend on the updated `mqtt_handler` service, so restart it after every plugin update.
+
 ## Quick Install (Raspberry Pi / Debian)
 
 The plugin ships with a one-shot installer that handles every prerequisite
@@ -306,6 +308,14 @@ hciconfig hci0 up 2>/dev/null
 ### Temperature or mode changes fail over weak Bluetooth
 
 If a weak Bluetooth signal causes intermittent failures, try a longer **Retry a change for** window under **Advanced** in the plugin settings. If the change still fails by the end of the window, Homebridge logs a warning.
+
+While a change is retrying:
+
+- The plugin does not poll the thermostat. The Home app shows the value you requested, and changes made on the thermostat itself show up only after the retry ends.
+- Changes for one thermostat are applied in the order you made them. Turning the thermostat OFF counts as a temperature change, so OFF and a newer temperature change replace each other, and the newer one wins.
+- A thermostat that keeps failing does not hold up changes for your other thermostats.
+
+Retrying requires the updated `mqtt_handler` service. Restart it after updating the plugin.
 
 ### `mqtt_handler` stops working after plugin update
 

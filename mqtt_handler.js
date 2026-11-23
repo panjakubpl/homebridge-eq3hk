@@ -15,11 +15,20 @@ function validateMac(mac) {
   return /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/.test(mac);
 }
 
-function retryCommand(command, retries, callback) {
+// isCancelled (optional) is checked before each inner retry. When it returns
+// true the remaining retries are skipped and callback gets the last error.
+function retryCommand(command, retries, callback, isCancelled) {
+  const cancelled = () => typeof isCancelled === 'function' && isCancelled();
   exec(command, (error, stdout, stderr) => {
-    if (error && retries > 0) {
+    if (error && retries > 0 && !cancelled()) {
       console.log(`Command failed, retrying in ${RETRY_INTERVAL / 1000} seconds...`, error);
-      setTimeout(() => retryCommand(command, retries - 1, callback), RETRY_INTERVAL);
+      setTimeout(() => {
+        if (cancelled()) {
+          callback(error, stdout, stderr);
+          return;
+        }
+        retryCommand(command, retries - 1, callback, isCancelled);
+      }, RETRY_INTERVAL);
     } else {
       callback(error, stdout, stderr);
     }
@@ -50,19 +59,36 @@ function logBleFailure(label, error) {
   });
 }
 
+// Monotonic clock for deadlines and wake timers; wall-clock jumps (NTP sync
+// after boot) must not shorten or stretch the retry window.
+function now() {
+  return performance.now();
+}
+
 // Serial queue. EQ3 Bluetooth adapter cannot serve concurrent GATT connections.
 // Set jobs are keyed (e.g. mac:temp / mac:mode); same key keeps latest only.
+// Every set entry gets a sequence number on arrival (a replacement is a new
+// user action and gets a new one; a retry keeps its own). An entry runs only
+// when no older entry for the same MAC is still pending, so changes for one
+// thermostat land in the order they were made. Different MACs are independent.
 // Polls are dropped while any set job is pending or in flight.
 let inFlight = false;
 let inFlightEntry = null;
 let pendingHigh = new Map();
 let queuedLow = null;
 let wakeTimer = null;
+let nextSeq = 0;
+let droppedPollLogged = false;
 
 function validRetryForMs(ms) {
   if (typeof ms !== 'number' || !Number.isFinite(ms)) return null;
   if (ms <= 0 || ms > RETRY_FOR_MS_MAX) return null;
   return ms;
+}
+
+function macOfKey(key) {
+  const i = key.lastIndexOf(':');
+  return i > 0 ? key.slice(0, i) : key;
 }
 
 function hasActiveHighPending() {
@@ -88,11 +114,11 @@ function _clearWakeTimer() {
 function _scheduleWake() {
   _clearWakeTimer();
   if (inFlight) return;
-  const now = Date.now();
+  const t = now();
   let earliest = Infinity;
   for (const entry of pendingHigh.values()) {
     if (entry.superseded) continue;
-    if (entry.notBefore > now && entry.notBefore < earliest) {
+    if (entry.notBefore > t && entry.notBefore < earliest) {
       earliest = entry.notBefore;
     }
   }
@@ -100,7 +126,7 @@ function _scheduleWake() {
     wakeTimer = setTimeout(() => {
       wakeTimer = null;
       _processNext();
-    }, earliest - now);
+    }, earliest - t);
   }
 }
 
@@ -109,15 +135,20 @@ function _resetQueue() {
   inFlightEntry = null;
   pendingHigh = new Map();
   queuedLow = null;
+  nextSeq = 0;
+  droppedPollLogged = false;
   _clearWakeTimer();
 }
 
 function _highEntryFromJob(job) {
-  const receivedAt = Date.now();
+  const receivedAt = now();
   const retryForMs = validRetryForMs(job.retryForMs);
+  const key = job.key || 'set';
   return {
     job,
-    key: job.key || 'set',
+    key,
+    mac: macOfKey(key),
+    seq: nextSeq++,
     receivedAt,
     retryForMs,
     deadline: retryForMs ? receivedAt + retryForMs : null,
@@ -151,17 +182,21 @@ function _runJob(entry) {
         _finishJob(job, error, stdout, stderr);
         return;
       }
-      const now = Date.now();
-      const backoffWouldMissDeadline = now + SET_RETRY_BACKOFF_MS >= entry.deadline;
-      if (now >= entry.deadline || backoffWouldMissDeadline) {
-        const minutes = Math.round(entry.retryForMs / 60000);
-        console.log(`gave up ${job.command} after ${minutes} min`);
+      const t = now();
+      const backoffWouldMissDeadline = t + SET_RETRY_BACKOFF_MS >= entry.deadline;
+      if (t >= entry.deadline || backoffWouldMissDeadline) {
+        const minutes = ((t - entry.receivedAt) / 60000).toFixed(1);
+        const firstLine = String((error && error.message) || error).split('\n')[0];
+        console.error(`gave up ${entry.key} (${job.command}) after ${minutes} min: ${firstLine}`);
         const err = error;
         err.gaveUpAfterMs = entry.retryForMs;
         _finishJob(job, err, stdout, stderr);
         return;
       }
-      entry.notBefore = now + SET_RETRY_BACKOFF_MS;
+      if (typeof job.onCycleFailed === 'function') {
+        job.onCycleFailed(error, stdout, stderr);
+      }
+      entry.notBefore = t + SET_RETRY_BACKOFF_MS;
       pendingHigh.set(entry.key, entry);
       console.log(`retrying ${job.command} in ${SET_RETRY_BACKOFF_MS / 1000} s`);
     } finally {
@@ -170,7 +205,7 @@ function _runJob(entry) {
       purgeSuperseded();
       _processNext();
     }
-  });
+  }, () => entry.superseded);
 }
 
 function _runLowJob(job) {
@@ -201,6 +236,7 @@ function enqueueRequest(job) {
   const prev = pendingHigh.get(entry.key);
   if (prev) {
     prev.superseded = true;
+    pendingHigh.delete(entry.key);
   }
   if (inFlightEntry && inFlightEntry.key === entry.key) {
     inFlightEntry.superseded = true;
@@ -210,17 +246,30 @@ function enqueueRequest(job) {
   return true;
 }
 
+// Ready entry with the lowest sequence whose MAC has no older pending entry.
+function _nextRunnable(t) {
+  const oldestPerMac = new Map();
+  for (const entry of pendingHigh.values()) {
+    if (entry.superseded) continue;
+    const oldest = oldestPerMac.get(entry.mac);
+    if (!oldest || entry.seq < oldest.seq) oldestPerMac.set(entry.mac, entry);
+  }
+  let best = null;
+  for (const entry of oldestPerMac.values()) {
+    if (entry.notBefore > t) continue;
+    if (!best || entry.seq < best.seq) best = entry;
+  }
+  return best;
+}
+
 function _processNext() {
   if (inFlight) return;
 
   purgeSuperseded();
-  const now = Date.now();
-  for (const entry of pendingHigh.values()) {
-    if (entry.superseded) continue;
-    if (entry.notBefore <= now) {
-      _runJob(entry);
-      return;
-    }
+  const entry = _nextRunnable(now());
+  if (entry) {
+    _runJob(entry);
+    return;
   }
 
   if (hasActiveHighPending()) {
@@ -230,6 +279,127 @@ function _processNext() {
 
   if (queuedLow) {
     _runLowJob(queuedLow);
+    return;
+  }
+
+  // Queue is idle: the next busy streak may log a dropped poll again.
+  droppedPollLogged = false;
+}
+
+function _logDroppedPoll() {
+  if (droppedPollLogged) return;
+  droppedPollLogged = true;
+  console.log('Dropped getTemperature — BLE busy');
+}
+
+const RESPONSE_TOPIC = 'homebridge/eq3hk/response';
+
+function _setJob(client, request, requestName, key, command) {
+  const label = requestName;
+  return {
+    command,
+    priority: 'high',
+    key,
+    retryForMs: request.retryForMs,
+    debug: request.debug === true,
+    onCycleFailed: (error) => logBleFailure(label, error),
+    onDone: (error) => {
+      if (error) {
+        logBleFailure(label, error);
+        const payload = {
+          macAddress: request.macAddress,
+          type: 'error',
+          request: requestName,
+          error: error.message
+        };
+        if (error.gaveUpAfterMs) payload.gaveUpAfterMs = error.gaveUpAfterMs;
+        client.publish(RESPONSE_TOPIC, JSON.stringify(payload));
+      } else {
+        noteBleSuccess();
+        client.publish(RESPONSE_TOPIC, JSON.stringify({
+          macAddress: request.macAddress,
+          type: 'set',
+          request: requestName
+        }));
+      }
+    }
+  };
+}
+
+function handleMessage(client, messageString) {
+  console.log('Received message:', messageString);
+  let request;
+  try {
+    request = JSON.parse(messageString);
+  } catch (e) {
+    console.error('Invalid JSON in MQTT message:', e.message);
+    return;
+  }
+  if (!request || typeof request !== 'object') {
+    console.error('Invalid MQTT message:', messageString);
+    return;
+  }
+
+  if (!validateMac(request.macAddress)) {
+    console.error('Invalid MAC address:', request.macAddress);
+    client.publish(RESPONSE_TOPIC, JSON.stringify({
+      macAddress: request.macAddress,
+      type: 'error',
+      error: 'Invalid MAC address'
+    }));
+    return;
+  }
+
+  const mac = request.macAddress;
+
+  if (request.type === 'getTemperature') {
+    const accepted = enqueueRequest({
+      command: `${scriptPath} ${mac} status`,
+      priority: 'low',
+      debug: request.debug === true,
+      onDone: (error, stdout) => {
+        if (error) {
+          logBleFailure('getTemperature', error);
+          client.publish(RESPONSE_TOPIC, JSON.stringify({
+            macAddress: mac,
+            type: 'error',
+            error: error.message
+          }));
+        } else {
+          noteBleSuccess();
+          const match = stdout.match(/Temperature:\s*([\d\.]+)°C/);
+          if (match) {
+            const temperature = parseFloat(match[1]);
+            console.log(`Current temperature for MAC address ${mac}: ${temperature}°C`);
+            client.publish(RESPONSE_TOPIC, JSON.stringify({
+              macAddress: mac,
+              type: 'temperature',
+              value: temperature
+            }));
+          } else {
+            console.error('Temperature match not found in stdout:', stdout);
+            client.publish(RESPONSE_TOPIC, JSON.stringify({
+              macAddress: mac,
+              type: 'error',
+              error: 'Temperature match not found'
+            }));
+          }
+        }
+      }
+    });
+    if (!accepted) {
+      _logDroppedPoll();
+    }
+  } else if (request.type === 'setTemperature') {
+    enqueueRequest(_setJob(client, request, 'setTemperature', `${mac}:temp`,
+      `${scriptPath} ${mac} temp ${request.value}`));
+  } else if (request.type === 'setMode') {
+    // eq3.exp "off"/"on" write 4.5 / 30 °C, so they share the temperature key:
+    // OFF and a temperature change replace each other.
+    const isTempWrite = request.mode === 'off' || request.mode === 'on';
+    const key = `${mac}:${isTempWrite ? 'temp' : 'mode'}`;
+    enqueueRequest(_setJob(client, request, 'setMode', key,
+      `${scriptPath} ${mac} ${request.mode}`));
   }
 }
 
@@ -242,127 +412,12 @@ if (require.main === module) {
   });
 
   client.on('message', (topic, message) => {
-    console.log('Received message:', message.toString());
-    let request;
-    try {
-      request = JSON.parse(message.toString());
-    } catch (e) {
-      console.error('Invalid JSON in MQTT message:', e.message);
-      return;
-    }
-
-    if (!validateMac(request.macAddress)) {
-      console.error('Invalid MAC address:', request.macAddress);
-      client.publish('homebridge/eq3hk/response', JSON.stringify({
-        macAddress: request.macAddress,
-        type: 'error',
-        error: 'Invalid MAC address'
-      }));
-      return;
-    }
-
-    if (request.type === 'getTemperature') {
-      const accepted = enqueueRequest({
-        command: `${scriptPath} ${request.macAddress} status`,
-        priority: 'low',
-        debug: request.debug === true,
-        onDone: (error, stdout) => {
-          if (error) {
-            logBleFailure('getTemperature', error);
-            client.publish('homebridge/eq3hk/response', JSON.stringify({
-              macAddress: request.macAddress,
-              type: 'error',
-              error: error.message
-            }));
-          } else {
-            noteBleSuccess();
-            const match = stdout.match(/Temperature:\s*([\d\.]+)°C/);
-            if (match) {
-              const temperature = parseFloat(match[1]);
-              console.log(`Current temperature for MAC address ${request.macAddress}: ${temperature}°C`);
-              client.publish('homebridge/eq3hk/response', JSON.stringify({
-                macAddress: request.macAddress,
-                type: 'temperature',
-                value: temperature
-              }));
-            } else {
-              console.error('Temperature match not found in stdout:', stdout);
-              client.publish('homebridge/eq3hk/response', JSON.stringify({
-                macAddress: request.macAddress,
-                type: 'error',
-                error: 'Temperature match not found'
-              }));
-            }
-          }
-        }
-      });
-      if (!accepted) {
-        console.log('Dropped getTemperature — BLE busy');
-      }
-    } else if (request.type === 'setTemperature') {
-      const setKey = `${request.macAddress}:temp`;
-      enqueueRequest({
-        command: `${scriptPath} ${request.macAddress} temp ${request.value}`,
-        priority: 'high',
-        key: setKey,
-        retryForMs: request.retryForMs,
-        debug: request.debug === true,
-        onDone: (error) => {
-          if (error) {
-            logBleFailure('setTemperature', error);
-            const payload = {
-              macAddress: request.macAddress,
-              type: 'error',
-              request: 'setTemperature',
-              error: error.message
-            };
-            if (error.gaveUpAfterMs) payload.gaveUpAfterMs = error.gaveUpAfterMs;
-            client.publish('homebridge/eq3hk/response', JSON.stringify(payload));
-          } else {
-            noteBleSuccess();
-            client.publish('homebridge/eq3hk/response', JSON.stringify({
-              macAddress: request.macAddress,
-              type: 'set',
-              request: 'setTemperature'
-            }));
-          }
-        }
-      });
-    } else if (request.type === 'setMode') {
-      const setKey = `${request.macAddress}:mode`;
-      enqueueRequest({
-        command: `${scriptPath} ${request.macAddress} ${request.mode}`,
-        priority: 'high',
-        key: setKey,
-        retryForMs: request.retryForMs,
-        debug: request.debug === true,
-        onDone: (error) => {
-          if (error) {
-            logBleFailure('setMode', error);
-            const payload = {
-              macAddress: request.macAddress,
-              type: 'error',
-              request: 'setMode',
-              error: error.message
-            };
-            if (error.gaveUpAfterMs) payload.gaveUpAfterMs = error.gaveUpAfterMs;
-            client.publish('homebridge/eq3hk/response', JSON.stringify(payload));
-          } else {
-            noteBleSuccess();
-            client.publish('homebridge/eq3hk/response', JSON.stringify({
-              macAddress: request.macAddress,
-              type: 'set',
-              request: 'setMode'
-            }));
-          }
-        }
-      });
-    }
+    handleMessage(client, message.toString());
   });
 }
 
 module.exports = {
   validateMac, retryCommand, enqueueRequest, _resetQueue,
   checkBluetooth, logBleFailure, noteBleSuccess, BLUETOOTH_HINT,
-  SET_RETRY_BACKOFF_MS,
+  SET_RETRY_BACKOFF_MS, handleMessage,
 };

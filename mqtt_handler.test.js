@@ -12,7 +12,7 @@ const { exec } = require('child_process');
 const {
   validateMac, retryCommand, enqueueRequest, _resetQueue,
   checkBluetooth, logBleFailure, noteBleSuccess, BLUETOOTH_HINT,
-  SET_RETRY_BACKOFF_MS,
+  SET_RETRY_BACKOFF_MS, handleMessage,
 } = require('./mqtt_handler');
 
 /** Defer exec callbacks until failCycle (or test) invokes them. */
@@ -373,17 +373,18 @@ describe('set retry window', () => {
     enqueueRequest({ command: 'set-old', priority: 'high', key: 'K', retryForMs: 60000, onDone: oldDone });
     enqueueRequest({ command: 'set-new', priority: 'high', key: 'K', retryForMs: 60000, onDone: newDone });
 
-    failCycle(exec);
+    exec.mock.calls[0][1](new Error('BLE fail'), '', '');
     jest.runOnlyPendingTimers();
 
     expect(oldDone).not.toHaveBeenCalled();
-    expect(exec.mock.calls.filter((c) => c[0] === 'set-old')).toHaveLength(3);
+    // The replaced job stops its inner retries after the first failed attempt.
+    expect(exec.mock.calls.filter((c) => c[0] === 'set-old')).toHaveLength(1);
     expect(exec.mock.calls.filter((c) => c[0] === 'set-new').length).toBeGreaterThanOrEqual(1);
     exec.mock.calls[exec.mock.calls.length - 1][1](null, '', '');
     expect(newDone).toHaveBeenCalled();
     jest.advanceTimersByTime(SET_RETRY_BACKOFF_MS);
     jest.runOnlyPendingTimers();
-    expect(exec.mock.calls.filter((c) => c[0] === 'set-old')).toHaveLength(3);
+    expect(exec.mock.calls.filter((c) => c[0] === 'set-old')).toHaveLength(1);
   });
 
   test('deadline passing mid-cycle → no further cycle', () => {
@@ -448,6 +449,334 @@ describe('set retry window', () => {
     const cb = exec.mock.calls[exec.mock.calls.length - 1][1];
     cb(null, 'ok', '');
     expect(exec.mock.calls.some((c) => c[0] === 'cmd-B')).toBe(true);
+  });
+});
+
+// ─── per-MAC ordering ─────────────────────────────────────────────────────────
+
+describe('per-MAC arrival order', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    exec.mockReset();
+    _resetQueue();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  const cmds = () => exec.mock.calls.map((c) => c[0]);
+  const succeedLast = () => exec.mock.calls[exec.mock.calls.length - 1][1](null, 'ok', '');
+
+  test('newer job of another kind waits while an older job for the same MAC is in backoff', () => {
+    deferExec();
+    const olderDone = jest.fn();
+    const newerDone = jest.fn();
+
+    enqueueRequest({ command: 'mode-manual', priority: 'high', key: 'M:mode', retryForMs: 60000, onDone: olderDone });
+    failCycle(exec);
+    enqueueRequest({ command: 'temp-21', priority: 'high', key: 'M:temp', retryForMs: 60000, onDone: newerDone });
+
+    expect(cmds()).not.toContain('temp-21');
+    jest.advanceTimersByTime(SET_RETRY_BACKOFF_MS - 1);
+    expect(cmds()).not.toContain('temp-21');
+
+    jest.advanceTimersByTime(1);
+    expect(cmds()[cmds().length - 1]).toBe('mode-manual');
+    succeedLast();
+    expect(olderDone).toHaveBeenCalledWith(null, 'ok', '');
+
+    expect(cmds()[cmds().length - 1]).toBe('temp-21');
+    succeedLast();
+    expect(newerDone).toHaveBeenCalledWith(null, 'ok', '');
+    const firstTemp = cmds().indexOf('temp-21');
+    expect(cmds().lastIndexOf('mode-manual')).toBeLessThan(firstTemp);
+  });
+
+  test('reverse kinds: older temp in backoff blocks newer mode until it lands', () => {
+    deferExec();
+
+    enqueueRequest({ command: 'temp-21', priority: 'high', key: 'M:temp', retryForMs: 60000, onDone: () => {} });
+    failCycle(exec);
+    enqueueRequest({ command: 'mode-auto', priority: 'high', key: 'M:mode', retryForMs: 60000, onDone: () => {} });
+    expect(cmds()).not.toContain('mode-auto');
+
+    jest.advanceTimersByTime(SET_RETRY_BACKOFF_MS);
+    expect(cmds()[cmds().length - 1]).toBe('temp-21');
+    succeedLast();
+    expect(cmds()[cmds().length - 1]).toBe('mode-auto');
+  });
+
+  test('newer job runs once the older one gives up', () => {
+    deferExec();
+    const olderDone = jest.fn();
+
+    enqueueRequest({ command: 'mode-manual', priority: 'high', key: 'M:mode', retryForMs: 15000, onDone: olderDone });
+    enqueueRequest({ command: 'temp-21', priority: 'high', key: 'M:temp', retryForMs: 60000, onDone: () => {} });
+    failCycle(exec);
+
+    expect(olderDone).toHaveBeenCalledTimes(1);
+    expect(olderDone.mock.calls[0][0]).not.toBeNull();
+    expect(cmds()[cmds().length - 1]).toBe('temp-21');
+  });
+
+  test('same-key replacement while the old job is in backoff: new runs, old never runs again', () => {
+    deferExec();
+    const oldDone = jest.fn();
+
+    enqueueRequest({ command: 'temp-19', priority: 'high', key: 'M:temp', retryForMs: 60000, onDone: oldDone });
+    failCycle(exec);
+    enqueueRequest({ command: 'temp-22', priority: 'high', key: 'M:temp', retryForMs: 60000, onDone: () => {} });
+
+    expect(cmds()[cmds().length - 1]).toBe('temp-22');
+    succeedLast();
+    jest.advanceTimersByTime(60000);
+    expect(cmds().filter((c) => c === 'temp-19')).toHaveLength(3);
+    expect(oldDone).not.toHaveBeenCalled();
+  });
+
+  test('a retry keeps its place ahead of a newer job for the same MAC queued while it was in flight', () => {
+    deferExec();
+
+    enqueueRequest({ command: 'mode-manual', priority: 'high', key: 'M:mode', retryForMs: 60000, onDone: () => {} });
+    enqueueRequest({ command: 'temp-21', priority: 'high', key: 'M:temp', retryForMs: 60000, onDone: () => {} });
+    failCycle(exec);
+
+    expect(cmds()).not.toContain('temp-21');
+    jest.advanceTimersByTime(SET_RETRY_BACKOFF_MS);
+    expect(cmds()[cmds().length - 1]).toBe('mode-manual');
+  });
+});
+
+// ─── cancellation, cycle hooks, logging ──────────────────────────────────────
+
+describe('retryCommand cancellation', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    exec.mockReset();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  test('stops before the next inner retry when isCancelled() is true', () => {
+    exec.mockImplementation((cmd, cb) => cb(new Error('BLE error'), 'out', 'err'));
+    const callback = jest.fn();
+    retryCommand('some-cmd', 2, callback, () => true);
+    jest.advanceTimersByTime(10000);
+    expect(exec).toHaveBeenCalledTimes(1);
+    expect(callback).toHaveBeenCalledTimes(1);
+    expect(callback.mock.calls[0][0].message).toBe('BLE error');
+  });
+
+  test('cancellation during the retry wait stops before the next attempt', () => {
+    exec.mockImplementation((cmd, cb) => cb(new Error('BLE error'), '', ''));
+    let cancelled = false;
+    const callback = jest.fn();
+    retryCommand('some-cmd', 2, callback, () => cancelled);
+    expect(callback).not.toHaveBeenCalled();
+    cancelled = true;
+    jest.advanceTimersByTime(3000);
+    expect(exec).toHaveBeenCalledTimes(1);
+    expect(callback).toHaveBeenCalledTimes(1);
+    expect(callback.mock.calls[0][0]).not.toBeNull();
+  });
+});
+
+describe('set cycle hooks and give-up log', () => {
+  let errorSpy;
+  let logSpy;
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    exec.mockReset();
+    _resetQueue();
+    errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    errorSpy.mockRestore();
+    logSpy.mockRestore();
+    jest.useRealTimers();
+  });
+
+  test('onCycleFailed is called for every failed cycle that is retried', () => {
+    deferExec();
+    const onCycleFailed = jest.fn();
+    const onDone = jest.fn();
+    enqueueRequest({ command: 'set-cmd', priority: 'high', key: 'M:temp', retryForMs: 60000, onCycleFailed, onDone });
+    failCycle(exec);
+    expect(onCycleFailed).toHaveBeenCalledTimes(1);
+    expect(onCycleFailed.mock.calls[0][0].message).toBe('BLE fail');
+    expect(onDone).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(SET_RETRY_BACKOFF_MS);
+    failCycle(exec);
+    expect(onCycleFailed).toHaveBeenCalledTimes(2);
+  });
+
+  test('give-up logs key, command and elapsed minutes via console.error', () => {
+    deferExec();
+    enqueueRequest({ command: 'set-cmd', priority: 'high', key: 'M:temp', retryForMs: 15000, onDone: () => {} });
+    failCycle(exec);
+    const lines = errorSpy.mock.calls.map((c) => c.join(' '));
+    expect(lines).toContain('gave up M:temp (set-cmd) after 0.1 min: BLE fail');
+  });
+
+  test('deadline uses a monotonic clock: a wall-clock jump does not end the window', () => {
+    deferExec();
+    const onDone = jest.fn();
+    enqueueRequest({ command: 'set-cmd', priority: 'high', key: 'M:temp', retryForMs: 60000, onDone });
+    failCycle(exec);
+    jest.setSystemTime(Date.now() + 2 * 3600000);
+    jest.advanceTimersByTime(SET_RETRY_BACKOFF_MS);
+    expect(exec).toHaveBeenCalledTimes(4);
+    failCycle(exec);
+    expect(onDone).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(SET_RETRY_BACKOFF_MS);
+    expect(exec).toHaveBeenCalledTimes(7);
+  });
+});
+
+// ─── handleMessage ───────────────────────────────────────────────────────────
+
+describe('handleMessage', () => {
+  const MAC = 'AA:BB:CC:DD:EE:FF';
+  let client;
+  let errorSpy;
+  let logSpy;
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    exec.mockReset();
+    _resetQueue();
+    noteBleSuccess();
+    client = { publish: jest.fn() };
+    errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    errorSpy.mockRestore();
+    logSpy.mockRestore();
+    jest.useRealTimers();
+  });
+
+  const send = (obj) => handleMessage(client, JSON.stringify(obj));
+  const published = () => client.publish.mock.calls.map((c) => {
+    expect(c[0]).toBe('homebridge/eq3hk/response');
+    return JSON.parse(c[1]);
+  });
+  const cmds = () => exec.mock.calls.map((c) => c[0]);
+  const lastCb = () => exec.mock.calls[exec.mock.calls.length - 1][1];
+  const droppedLogs = () => logSpy.mock.calls.filter((c) => /Dropped getTemperature/.test(c.join(' ')));
+
+  test('set success publishes {macAddress, type: set, request}', () => {
+    deferExec();
+    send({ macAddress: MAC, type: 'setTemperature', value: 21, retryForMs: 60000 });
+    expect(cmds()[0]).toMatch(/eq3\.exp AA:BB:CC:DD:EE:FF temp 21$/);
+    lastCb()(null, '', '');
+    expect(published()).toEqual([{ macAddress: MAC, type: 'set', request: 'setTemperature' }]);
+  });
+
+  test('set give-up publishes an error with request and gaveUpAfterMs', () => {
+    deferExec();
+    send({ macAddress: MAC, type: 'setMode', mode: 'manual', retryForMs: 15000 });
+    failCycle(exec);
+    expect(published()).toEqual([{
+      macAddress: MAC, type: 'error', request: 'setMode', error: 'BLE fail', gaveUpAfterMs: 15000,
+    }]);
+  });
+
+  test('poll error has no request field', () => {
+    deferExec();
+    send({ macAddress: MAC, type: 'getTemperature' });
+    failCycle(exec);
+    const msgs = published();
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]).toEqual({ macAddress: MAC, type: 'error', error: 'BLE fail' });
+    expect(msgs[0]).not.toHaveProperty('request');
+  });
+
+  test('poll success publishes the temperature', () => {
+    exec.mockImplementation((cmd, cb) => cb(null, 'Temperature: 21.5°C', ''));
+    send({ macAddress: MAC, type: 'getTemperature' });
+    expect(published()).toEqual([{ macAddress: MAC, type: 'temperature', value: 21.5 }]);
+  });
+
+  test('setMode off and a later setTemperature replace each other (keyed as temp)', () => {
+    deferExec();
+    send({ macAddress: MAC, type: 'getTemperature' });
+    send({ macAddress: MAC, type: 'setMode', mode: 'off', retryForMs: 60000 });
+    send({ macAddress: MAC, type: 'setTemperature', value: 21, retryForMs: 60000 });
+    lastCb()(null, 'Temperature: 20.0°C', '');
+
+    expect(cmds()).toHaveLength(2);
+    expect(cmds()[1]).toMatch(/temp 21$/);
+    lastCb()(null, '', '');
+    jest.advanceTimersByTime(60000);
+    expect(cmds().some((c) => / off$/.test(c))).toBe(false);
+  });
+
+  test('setMode on also replaces a pending temperature change', () => {
+    deferExec();
+    send({ macAddress: MAC, type: 'getTemperature' });
+    send({ macAddress: MAC, type: 'setTemperature', value: 21, retryForMs: 60000 });
+    send({ macAddress: MAC, type: 'setMode', mode: 'on', retryForMs: 60000 });
+    lastCb()(null, 'Temperature: 20.0°C', '');
+    expect(cmds()).toHaveLength(2);
+    expect(cmds()[1]).toMatch(/ on$/);
+  });
+
+  test('setMode manual does not replace a pending temperature change', () => {
+    deferExec();
+    send({ macAddress: MAC, type: 'getTemperature' });
+    send({ macAddress: MAC, type: 'setTemperature', value: 21, retryForMs: 60000 });
+    send({ macAddress: MAC, type: 'setMode', mode: 'manual', retryForMs: 60000 });
+    lastCb()(null, 'Temperature: 20.0°C', '');
+    lastCb()(null, '', '');
+    expect(cmds()).toHaveLength(3);
+    expect(cmds()[1]).toMatch(/temp 21$/);
+    expect(cmds()[2]).toMatch(/ manual$/);
+  });
+
+  test('every failed set cycle logs the BLE failure before the window ends', () => {
+    deferExec();
+    send({ macAddress: MAC, type: 'setTemperature', value: 21, retryForMs: 60000 });
+    failCycle(exec);
+    const failures = errorSpy.mock.calls.filter((c) => c[0] === 'Error executing setTemperature:');
+    expect(failures).toHaveLength(1);
+    expect(published()).toEqual([]);
+  });
+
+  test('logs a dropped poll once per busy streak', () => {
+    deferExec();
+    send({ macAddress: MAC, type: 'setTemperature', value: 21, retryForMs: 60000 });
+    send({ macAddress: MAC, type: 'getTemperature' });
+    send({ macAddress: MAC, type: 'getTemperature' });
+    failCycle(exec);
+    send({ macAddress: MAC, type: 'getTemperature' });
+    expect(droppedLogs()).toHaveLength(1);
+
+    jest.advanceTimersByTime(SET_RETRY_BACKOFF_MS);
+    lastCb()(null, '', '');
+    // queue idle: the next busy streak logs again
+    send({ macAddress: MAC, type: 'setTemperature', value: 22, retryForMs: 60000 });
+    send({ macAddress: MAC, type: 'getTemperature' });
+    expect(droppedLogs()).toHaveLength(2);
+  });
+
+  test('invalid MAC publishes an error', () => {
+    send({ macAddress: 'nope', type: 'getTemperature' });
+    expect(exec).not.toHaveBeenCalled();
+    expect(published()).toEqual([{ macAddress: 'nope', type: 'error', error: 'Invalid MAC address' }]);
+  });
+
+  test('invalid JSON is ignored', () => {
+    handleMessage(client, '{not json');
+    expect(client.publish).not.toHaveBeenCalled();
+    expect(exec).not.toHaveBeenCalled();
   });
 });
 

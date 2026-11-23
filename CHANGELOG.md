@@ -6,8 +6,15 @@
 - **Retry a change for** under **Advanced** in the Homebridge UI. Temperature and mode changes retry until they succeed or the selected window expires. Choose 1, 5, 15, 30, or 60 minutes. The default is 15 minutes.
 
 ### Fixed
-- Temperature and mode changes queued for the same thermostat no longer replace each other. A newer change replaces a queued change of the same kind.
+- Temperature and mode changes queued for the same thermostat no longer replace each other. A newer change replaces a queued change of the same kind. Turning the thermostat OFF counts as a temperature change, so OFF and a temperature change replace each other.
+- Changes for one thermostat are applied in the order you made them, including while an earlier change is retrying. A thermostat that keeps failing does not hold up changes for other thermostats.
 - Homebridge now logs a warning when a temperature or mode change fails after retries. These errors were previously silent in the Homebridge log.
+- `setRetryMinutes` in `config.json` also accepts the value as a string, such as `"30"`. An unsupported value logs a warning and falls back to 15 minutes.
+
+### Notes
+- While a change is retrying, the plugin does not poll the thermostat. The Home app shows the requested value, and changes made on the thermostat itself show up only after the retry ends.
+- The retry window and the give-up warning require the updated `mqtt_handler` service. Restart it after updating the plugin.
+- `mqtt_handler` logs each failed attempt as it happens, including the hint about `bluetooth.service`, instead of waiting for the retry window to end. It logs a skipped status poll once per busy period instead of every 10 seconds.
 
 ## [2.6.1] - 2026-10-17
 

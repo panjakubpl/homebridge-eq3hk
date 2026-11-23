@@ -123,22 +123,22 @@ function _clearWakeTimer() {
   }
 }
 
-function _scheduleWake() {
+// Arms the wake for the earliest head-of-MAC entry still in backoff. Uses the
+// same clock reading and candidate set as _nextRunnable, so an entry whose
+// backoff ends between two reads cannot be stranded, and a ready entry blocked
+// behind an older one for its MAC never causes a 0 ms busy loop.
+function _scheduleWake(t) {
   _clearWakeTimer();
   if (inFlight) return;
-  const t = now();
   let earliest = Infinity;
-  for (const entry of pendingHigh.values()) {
-    if (entry.superseded) continue;
-    if (entry.notBefore > t && entry.notBefore < earliest) {
-      earliest = entry.notBefore;
-    }
+  for (const entry of _oldestPerMac().values()) {
+    if (entry.notBefore < earliest) earliest = entry.notBefore;
   }
   if (earliest < Infinity) {
     wakeTimer = setTimeout(() => {
       wakeTimer = null;
       _processNext();
-    }, earliest - t);
+    }, Math.max(0, earliest - t));
   }
 }
 
@@ -258,16 +258,22 @@ function enqueueRequest(job) {
   return true;
 }
 
-// Ready entry with the lowest sequence whose MAC has no older pending entry.
-function _nextRunnable(t) {
+// Oldest non-superseded pending entry for each MAC: the only entries allowed
+// to run next.
+function _oldestPerMac() {
   const oldestPerMac = new Map();
   for (const entry of pendingHigh.values()) {
     if (entry.superseded) continue;
     const oldest = oldestPerMac.get(entry.mac);
     if (!oldest || entry.seq < oldest.seq) oldestPerMac.set(entry.mac, entry);
   }
+  return oldestPerMac;
+}
+
+// Ready entry with the lowest sequence whose MAC has no older pending entry.
+function _nextRunnable(t) {
   let best = null;
-  for (const entry of oldestPerMac.values()) {
+  for (const entry of _oldestPerMac().values()) {
     if (entry.notBefore > t) continue;
     if (!best || entry.seq < best.seq) best = entry;
   }
@@ -278,14 +284,15 @@ function _processNext() {
   if (inFlight) return;
 
   purgeSuperseded();
-  const entry = _nextRunnable(now());
+  const t = now();
+  const entry = _nextRunnable(t);
   if (entry) {
     _runJob(entry);
     return;
   }
 
   if (hasActiveHighPending()) {
-    _scheduleWake();
+    _scheduleWake(t);
     return;
   }
 
@@ -373,6 +380,9 @@ function handleMessage(client, messageString) {
   }
 
   const mac = request.macAddress;
+  // Queue keys use one spelling per thermostat so ordering and replacement
+  // work regardless of case; responses keep the original string.
+  const keyMac = mac.toUpperCase();
 
   if (request.type === 'getTemperature') {
     const accepted = enqueueRequest({
@@ -417,7 +427,7 @@ function handleMessage(client, messageString) {
       _rejectSet(client, request, 'setTemperature', 'Invalid value', request.value);
       return;
     }
-    enqueueRequest(_setJob(client, request, 'setTemperature', `${mac}:temp`,
+    enqueueRequest(_setJob(client, request, 'setTemperature', `${keyMac}:temp`,
       `${scriptPath} ${mac} temp ${request.value}`));
   } else if (request.type === 'setMode') {
     if (!validMode(request.mode)) {
@@ -427,7 +437,7 @@ function handleMessage(client, messageString) {
     // eq3.exp "off"/"on" write 4.5 / 30 °C, so they share the temperature key:
     // OFF and a temperature change replace each other.
     const isTempWrite = request.mode === 'off' || request.mode === 'on';
-    const key = `${mac}:${isTempWrite ? 'temp' : 'mode'}`;
+    const key = `${keyMac}:${isTempWrite ? 'temp' : 'mode'}`;
     enqueueRequest(_setJob(client, request, 'setMode', key,
       `${scriptPath} ${mac} ${request.mode}`));
   }

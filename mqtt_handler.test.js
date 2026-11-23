@@ -548,6 +548,56 @@ describe('per-MAC arrival order', () => {
   });
 });
 
+describe('wake scheduling', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    exec.mockReset();
+    _resetQueue();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    jest.useRealTimers();
+  });
+
+  const cmds = () => exec.mock.calls.map((c) => c[0]);
+
+  test('an entry whose backoff ends between clock reads still runs (no stranded queue)', () => {
+    deferExec();
+    enqueueRequest({ command: 'set-cmd', priority: 'high', key: 'M:temp', retryForMs: 60000, onDone: () => {} });
+    failCycle(exec);
+    const notBefore = performance.now() + SET_RETRY_BACKOFF_MS;
+    jest.advanceTimersByTime(SET_RETRY_BACKOFF_MS - 1);
+    expect(exec).toHaveBeenCalledTimes(3);
+
+    // The wake fires at notBefore, but the first clock read still sees 1 ms earlier.
+    const real = performance.now.bind(performance);
+    jest.spyOn(performance, 'now').mockImplementationOnce(() => notBefore - 1).mockImplementation(real);
+    jest.advanceTimersByTime(1);
+    jest.advanceTimersByTime(5);
+    expect(exec).toHaveBeenCalledTimes(4);
+    expect(cmds()[3]).toBe('set-cmd');
+  });
+
+  test('a ready newer entry blocked behind an older one in backoff does not spin timers', () => {
+    deferExec();
+    enqueueRequest({ command: 'mode-manual', priority: 'high', key: 'M:mode', retryForMs: 60000, onDone: () => {} });
+    enqueueRequest({ command: 'temp-21', priority: 'high', key: 'M:temp', retryForMs: 60000, onDone: () => {} });
+    failCycle(exec);
+    expect(exec).toHaveBeenCalledTimes(3);
+    expect(jest.getTimerCount()).toBe(1);
+
+    jest.advanceTimersByTime(SET_RETRY_BACKOFF_MS / 2);
+    expect(exec).toHaveBeenCalledTimes(3);
+    expect(jest.getTimerCount()).toBe(1);
+
+    jest.advanceTimersByTime(SET_RETRY_BACKOFF_MS / 2);
+    expect(cmds()[cmds().length - 1]).toBe('mode-manual');
+    exec.mock.calls[exec.mock.calls.length - 1][1](null, 'ok', '');
+    expect(cmds()[cmds().length - 1]).toBe('temp-21');
+  });
+});
+
 // ─── cancellation, cycle hooks, logging ──────────────────────────────────────
 
 describe('retryCommand cancellation', () => {
@@ -765,6 +815,28 @@ describe('handleMessage', () => {
     send({ macAddress: MAC, type: 'setTemperature', value: 22, retryForMs: 60000 });
     send({ macAddress: MAC, type: 'getTemperature' });
     expect(droppedLogs()).toHaveLength(2);
+  });
+
+  test('MAC case is normalised for queue keys; responses keep the original string', () => {
+    deferExec();
+    const lower = 'aa:bb:cc:dd:ee:ff';
+    send({ macAddress: lower, type: 'setMode', mode: 'off', retryForMs: 60000 });
+    failCycle(exec);
+    send({ macAddress: MAC, type: 'setTemperature', value: 21, retryForMs: 60000 });
+
+    expect(cmds()[cmds().length - 1]).toMatch(/temp 21$/);
+    lastCb()(null, '', '');
+    jest.advanceTimersByTime(60000);
+    expect(cmds().filter((c) => / off$/.test(c))).toHaveLength(3);
+    expect(published()).toEqual([{ macAddress: MAC, type: 'set', request: 'setTemperature' }]);
+  });
+
+  test('a lower-case MAC keeps its original string in the response', () => {
+    deferExec();
+    const lower = 'aa:bb:cc:dd:ee:ff';
+    send({ macAddress: lower, type: 'setMode', mode: 'manual' });
+    lastCb()(null, '', '');
+    expect(published()).toEqual([{ macAddress: lower, type: 'set', request: 'setMode' }]);
   });
 
   test('invalid MAC publishes an error', () => {

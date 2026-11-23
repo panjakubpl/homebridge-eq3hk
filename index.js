@@ -73,11 +73,12 @@ class EQ3Thermostat {
 				} else if (data.type === 'set') {
 					this.log('Set command acknowledged');
 				} else if (data.type === 'error' && /^set/.test(data.request || '')) {
-					const minutes = data.gaveUpAfterMs != null
-						? Math.round(data.gaveUpAfterMs / 60000)
-						: this.setRetryMinutes;
 					const firstLine = (data.error || '').split('\n')[0];
-					const msg = `Change not applied to thermostat after ${minutes} min: ${firstLine}`;
+					// Without gaveUpAfterMs (immediate rejection, older handler) no
+					// retry window ran, so do not claim one.
+					const msg = data.gaveUpAfterMs != null
+						? `Change not applied to thermostat after ${Math.round(data.gaveUpAfterMs / 60000)} min: ${firstLine}`
+						: `Change not applied to thermostat: ${firstLine}`;
 					if (typeof this.log.warn === 'function') {
 						this.log.warn(msg);
 					} else {

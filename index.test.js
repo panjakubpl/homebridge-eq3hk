@@ -517,7 +517,7 @@ describe('MQTT message handler', () => {
       error: 'Connection timed out\nsecond line',
     })));
     expect(log.warn).toHaveBeenCalledWith(
-      'Change not applied to thermostat after 15 min: Connection timed out'
+      'Change not applied to thermostat: Connection timed out'
     );
   });
 
@@ -539,6 +539,22 @@ describe('MQTT message handler', () => {
     );
   });
 
+  test('does not claim a retry window for an immediate rejection without gaveUpAfterMs', () => {
+    const log = jest.fn();
+    log.warn = jest.fn();
+    const acc = makeAccessory({ setRetryMinutes: 30 });
+    acc.log = log;
+    const handler = getMessageHandler(acc);
+    handler('homebridge/eq3hk/response', Buffer.from(JSON.stringify({
+      macAddress: 'AA:BB:CC:DD:EE:FF',
+      type: 'error',
+      request: 'setTemperature',
+      error: 'Invalid value',
+    })));
+    expect(log.warn).toHaveBeenCalledWith('Change not applied to thermostat: Invalid value');
+    expect(log.warn.mock.calls[0][0]).not.toMatch(/min/);
+  });
+
   test('falls back to log when log.warn is not available', () => {
     const log = jest.fn();
     const acc = makeAccessory({});
@@ -551,7 +567,7 @@ describe('MQTT message handler', () => {
       error: 'BLE failed',
     })));
     expect(log).toHaveBeenCalledWith(
-      'Change not applied to thermostat after 15 min: BLE failed'
+      'Change not applied to thermostat: BLE failed'
     );
     expect(log.warn).toBeUndefined();
   });

@@ -269,6 +269,28 @@ describe('set retry window', () => {
     expect(onDone).not.toHaveBeenCalled();
   });
 
+  test('does not start a cycle after the deadline', () => {
+    const onDone = jest.fn();
+    deferExec();
+
+    enqueueRequest({
+      command: 'set-cmd',
+      priority: 'high',
+      retryForMs: 15000,
+      onDone,
+    });
+    failCycle(exec);
+
+    expect(exec).toHaveBeenCalledTimes(3);
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(onDone.mock.calls[0][0]).not.toBeNull();
+    expect(onDone.mock.calls[0][0].gaveUpAfterMs).toBe(15000);
+
+    jest.advanceTimersByTime(60000);
+    expect(exec).toHaveBeenCalledTimes(3);
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
   test('gives up after deadline and calls onDone with error once', () => {
     const onDone = jest.fn();
     deferExec();

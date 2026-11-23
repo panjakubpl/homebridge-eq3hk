@@ -139,36 +139,37 @@ function _runJob(entry) {
   pendingHigh.delete(entry.key);
   const { job } = entry;
   retryCommand(job.command, MAX_RETRIES, (error, stdout, stderr) => {
-  try {
-    if (entry.superseded) {
-      return;
+    try {
+      if (entry.superseded) {
+        return;
+      }
+      if (!error) {
+        _finishJob(job, null, stdout, stderr);
+        return;
+      }
+      if (!entry.retryForMs) {
+        _finishJob(job, error, stdout, stderr);
+        return;
+      }
+      const now = Date.now();
+      const backoffWouldMissDeadline = now + SET_RETRY_BACKOFF_MS >= entry.deadline;
+      if (now >= entry.deadline || backoffWouldMissDeadline) {
+        const minutes = Math.round(entry.retryForMs / 60000);
+        console.log(`gave up ${job.command} after ${minutes} min`);
+        const err = error;
+        err.gaveUpAfterMs = entry.retryForMs;
+        _finishJob(job, err, stdout, stderr);
+        return;
+      }
+      entry.notBefore = now + SET_RETRY_BACKOFF_MS;
+      pendingHigh.set(entry.key, entry);
+      console.log(`retrying ${job.command} in ${SET_RETRY_BACKOFF_MS / 1000} s`);
+    } finally {
+      inFlight = false;
+      inFlightEntry = null;
+      purgeSuperseded();
+      _processNext();
     }
-    if (!error) {
-      _finishJob(job, null, stdout, stderr);
-      return;
-    }
-    if (!entry.retryForMs) {
-      _finishJob(job, error, stdout, stderr);
-      return;
-    }
-    const now = Date.now();
-    if (now >= entry.deadline) {
-      const minutes = Math.round(entry.retryForMs / 60000);
-      console.log(`gave up ${job.command} after ${minutes} min`);
-      const err = error;
-      err.gaveUpAfterMs = entry.retryForMs;
-      _finishJob(job, err, stdout, stderr);
-      return;
-    }
-    entry.notBefore = now + SET_RETRY_BACKOFF_MS;
-    pendingHigh.set(entry.key, entry);
-    console.log(`retrying ${job.command} in ${SET_RETRY_BACKOFF_MS / 1000} s`);
-  } finally {
-    inFlight = false;
-    inFlightEntry = null;
-    purgeSuperseded();
-    _processNext();
-  }
   });
 }
 

@@ -731,6 +731,31 @@ describe('debug option', () => {
     })));
     expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('Command failed: eq3.exp'));
   });
+
+  test('logs poll error responses via acc.log when debug is enabled', () => {
+    const acc = makeAccessory({ debug: true });
+    acc.log.mockClear();
+    sendResponse({
+      macAddress: 'AA:BB:CC:DD:EE:FF',
+      type: 'error',
+      error: 'Command failed: eq3.exp',
+    });
+    expect(acc.log).toHaveBeenCalledWith(expect.stringContaining('Command failed: eq3.exp'));
+  });
+
+  test('does not log poll error responses when debug is disabled', () => {
+    const log = jest.fn();
+    log.warn = jest.fn();
+    const acc = makeAccessory({});
+    acc.log = log;
+    sendResponse({
+      macAddress: 'AA:BB:CC:DD:EE:FF',
+      type: 'error',
+      error: 'Command failed: eq3.exp',
+    });
+    expect(log).not.toHaveBeenCalled();
+    expect(log.warn).not.toHaveBeenCalled();
+  });
 });
 
 describe('config.schema.json', () => {
@@ -738,6 +763,20 @@ describe('config.schema.json', () => {
 
   test('declares a boolean debug property defaulting to false', () => {
     expect(schema.schema.properties.debug).toMatchObject({ type: 'boolean', default: false });
+  });
+
+  test('declares setRetryMinutes with allowed minute choices defaulting to 15', () => {
+    const prop = schema.schema.properties.setRetryMinutes;
+    expect(prop).toMatchObject({ type: 'integer', default: 15 });
+    const values = prop.oneOf.flatMap((o) => o.enum);
+    expect(values).toEqual([1, 5, 15, 30, 60]);
+  });
+
+  test('places setRetryMinutes before debug in the Advanced section', () => {
+    const advanced = schema.layout.find((l) => l.title === 'Advanced');
+    const keys = advanced.items.map((i) => i.key || i);
+    expect(keys.indexOf('setRetryMinutes')).toBeLessThan(keys.indexOf('debug'));
+    expect(keys).toContain('setRetryMinutes');
   });
 
   test('places debug in a collapsed Advanced section', () => {

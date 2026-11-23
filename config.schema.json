@@ -23,6 +23,19 @@
 				"required": true,
 				"default": 10
             },
+            "setRetryMinutes": {
+                "title": "Retry a change for",
+                "description": "Keep retrying a temperature or mode change over weak Bluetooth until it succeeds or this time passes.",
+                "type": "integer",
+                "default": 15,
+                "oneOf": [
+                    { "title": "1 minute", "enum": [1] },
+                    { "title": "5 minutes", "enum": [5] },
+                    { "title": "15 minutes (default)", "enum": [15] },
+                    { "title": "30 minutes", "enum": [30] },
+                    { "title": "60 minutes", "enum": [60] }
+                ]
+            },
             "debug": {
                 "title": "Extra logging",
                 "description": "Log every request to the thermostat and its full response, including eq3.exp output. Use when troubleshooting.",
@@ -55,6 +68,7 @@
             "expandable": true,
             "expanded": false,
             "items": [
+                "setRetryMinutes",
                 "debug"
             ]
         }

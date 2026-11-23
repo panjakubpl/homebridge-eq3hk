@@ -12,6 +12,14 @@ As of v2.2.0, the plugin uses the modern `onGet`/`onSet` async API instead of th
 - Homebridge: `^1.6.0 || ^2.0.0`
 - Node.js: `^18.20.4 || ^20.15.1 || ^22 || ^24`
 
+## Upgrading to 2.7.0
+
+After updating the plugin, restart **both Homebridge and the `mqtt_handler` systemd service**. Restart Homebridge from the Homebridge UI, and run the following on the host that runs `mqtt_handler`:
+
+```bash
+sudo systemctl restart mqtt_handler.service
+```
+
 ## Quick Install (Raspberry Pi / Debian)
 
 The plugin ships with a one-shot installer that handles every prerequisite
@@ -140,6 +148,7 @@ Example configuration via the Homebridge UI:
 - **Name:** Living Room Thermostat
 - **MAC Address:** XX:XX:XX:XX:XX:XX
 - **Cache:** 10
+- **Advanced → Retry a change for** (`setRetryMinutes` in `config.json`) lets you choose 1, 5, 15, 30, or 60 minutes. The default is 15 minutes. The plugin retries temperature and mode changes until they succeed or the window expires.
 - **Advanced → Extra logging:** off by default; see [Extra logging](#extra-logging) when troubleshooting
 
 To add multiple thermostats, simply repeat the process with different MAC addresses.
@@ -294,13 +303,13 @@ To make this permanent across reboots, add to `/etc/rc.local` (before `exit 0`):
 hciconfig hci0 up 2>/dev/null
 ```
 
+### Temperature or mode changes fail over weak Bluetooth
+
+If a weak Bluetooth signal causes intermittent failures, try a longer **Retry a change for** window under **Advanced** in the plugin settings. If the change still fails by the end of the window, Homebridge logs a warning.
+
 ### `mqtt_handler` stops working after plugin update
 
-After updating the plugin via Homebridge UI, restart the `mqtt_handler` service:
-
-```bash
-sudo systemctl restart mqtt_handler.service
-```
+Restart both Homebridge and the `mqtt_handler` service. See [Upgrading to 2.7.0](#upgrading-to-270).
 
 ### `eq3.exp` permission denied
 

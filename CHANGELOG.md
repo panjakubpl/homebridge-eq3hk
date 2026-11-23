@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.7.0] - 2026-11-23
+
+### Added
+- **Retry a change for** under **Advanced** in the Homebridge UI. Temperature and mode changes retry until they succeed or the selected window expires. Choose 1, 5, 15, 30, or 60 minutes. The default is 15 minutes.
+
+### Fixed
+- Temperature and mode changes queued for the same thermostat no longer replace each other. A newer change replaces a queued change of the same kind.
+- Homebridge now logs a warning when a temperature or mode change fails after retries. These errors were previously silent in the Homebridge log.
+
 ## [2.6.1] - 2026-10-17
 
 ### Fixed

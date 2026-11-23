@@ -9,6 +9,8 @@
 - Temperature and mode changes queued for the same thermostat no longer replace each other. A newer change replaces a queued change of the same kind. Turning the thermostat OFF counts as a temperature change, so OFF and a temperature change replace each other.
 - Changes for one thermostat are applied in the order you made them, including while an earlier change is retrying. A thermostat that keeps failing does not hold up changes for other thermostats.
 - Homebridge now logs a warning when a temperature or mode change fails after retries. These errors were previously silent in the Homebridge log.
+- `mqtt_handler` now validates temperature and mode values from MQTT before they reach the shell. It rejects anything that is not a temperature from 4.5 to 30 °C in 0.5 °C steps or one of the modes `off`, `on`, `manual`, and `auto`.
+- Temperatures that are not in 0.5 °C steps, for example 21.11 °C from Siri, automations, or a Fahrenheit setting (70 °F), are rounded to the nearest 0.5 °C before they are sent, so the stricter `mqtt_handler` validation does not reject them.
 - `setRetryMinutes` in `config.json` also accepts the value as a string, such as `"30"`. An unsupported value logs a warning and falls back to 15 minutes.
 
 ### Notes

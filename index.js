@@ -186,6 +186,9 @@ class EQ3Thermostat {
 	async setTargetTemperature(value) {
 		if (value < 4.5) value = 4.5;
 		if (value > 29.5) value = 29.5;
+		// eq3.exp and mqtt_handler accept 0.5 °C steps only; Siri, automations
+		// and Fahrenheit conversions can send values like 21.11 (70 °F).
+		value = Math.round(value * 2) / 2;
 
 		// HomeKit hub re-sync protection: when user explicitly pressed OFF, the
 		// hub may re-push its remembered TargetTemperature within milliseconds.

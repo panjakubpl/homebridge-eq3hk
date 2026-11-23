@@ -773,6 +773,47 @@ describe('handleMessage', () => {
     expect(published()).toEqual([{ macAddress: 'nope', type: 'error', error: 'Invalid MAC address' }]);
   });
 
+  test.each([
+    ['21; rm -rf /'],
+    ['21'],
+    [NaN],
+    [4],
+    [30.5],
+    [21.3],
+    [null],
+    [undefined],
+  ])('rejects setTemperature value %p without running a command', (value) => {
+    send({ macAddress: MAC, type: 'setTemperature', value, retryForMs: 60000 });
+    expect(exec).not.toHaveBeenCalled();
+    expect(published()).toEqual([{
+      macAddress: MAC, type: 'error', request: 'setTemperature', error: 'Invalid value',
+    }]);
+    expect(errorSpy).toHaveBeenCalled();
+  });
+
+  test.each([4.5, 21, 21.5, 30])('accepts setTemperature value %p', (value) => {
+    deferExec();
+    send({ macAddress: MAC, type: 'setTemperature', value, retryForMs: 60000 });
+    expect(cmds()).toEqual([expect.stringMatching(new RegExp(`temp ${value}$`))]);
+    expect(published()).toEqual([]);
+  });
+
+  test.each([['off; reboot'], ['boost'], [''], [1], [undefined]])('rejects setMode mode %p without running a command', (mode) => {
+    send({ macAddress: MAC, type: 'setMode', mode, retryForMs: 60000 });
+    expect(exec).not.toHaveBeenCalled();
+    expect(published()).toEqual([{
+      macAddress: MAC, type: 'error', request: 'setMode', error: 'Invalid mode',
+    }]);
+    expect(errorSpy).toHaveBeenCalled();
+  });
+
+  test.each(['off', 'on', 'manual', 'auto'])('accepts setMode mode %p', (mode) => {
+    deferExec();
+    send({ macAddress: MAC, type: 'setMode', mode, retryForMs: 60000 });
+    expect(cmds()).toEqual([expect.stringMatching(new RegExp(` ${mode}$`))]);
+    expect(published()).toEqual([]);
+  });
+
   test('invalid JSON is ignored', () => {
     handleMessage(client, '{not json');
     expect(client.publish).not.toHaveBeenCalled();

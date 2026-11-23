@@ -15,6 +15,18 @@ function validateMac(mac) {
   return /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/.test(mac);
 }
 
+// Values reach a shell command line, so only accept what eq3.exp understands.
+function validTemperature(value) {
+  return typeof value === 'number' && Number.isFinite(value) &&
+    value >= 4.5 && value <= 30 && Number.isInteger(value * 2);
+}
+
+const VALID_MODES = ['off', 'on', 'manual', 'auto'];
+
+function validMode(mode) {
+  return VALID_MODES.includes(mode);
+}
+
 // isCancelled (optional) is checked before each inner retry. When it returns
 // true the remaining retries are skipped and callback gets the last error.
 function retryCommand(command, retries, callback, isCancelled) {
@@ -326,6 +338,16 @@ function _setJob(client, request, requestName, key, command) {
   };
 }
 
+function _rejectSet(client, request, requestName, error, value) {
+  console.error(`${error} in ${requestName} for ${request.macAddress}:`, JSON.stringify(value));
+  client.publish(RESPONSE_TOPIC, JSON.stringify({
+    macAddress: request.macAddress,
+    type: 'error',
+    request: requestName,
+    error
+  }));
+}
+
 function handleMessage(client, messageString) {
   console.log('Received message:', messageString);
   let request;
@@ -391,9 +413,17 @@ function handleMessage(client, messageString) {
       _logDroppedPoll();
     }
   } else if (request.type === 'setTemperature') {
+    if (!validTemperature(request.value)) {
+      _rejectSet(client, request, 'setTemperature', 'Invalid value', request.value);
+      return;
+    }
     enqueueRequest(_setJob(client, request, 'setTemperature', `${mac}:temp`,
       `${scriptPath} ${mac} temp ${request.value}`));
   } else if (request.type === 'setMode') {
+    if (!validMode(request.mode)) {
+      _rejectSet(client, request, 'setMode', 'Invalid mode', request.mode);
+      return;
+    }
     // eq3.exp "off"/"on" write 4.5 / 30 °C, so they share the temperature key:
     // OFF and a temperature change replace each other.
     const isTempWrite = request.mode === 'off' || request.mode === 'on';

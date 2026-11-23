@@ -309,6 +309,21 @@ describe('setTargetTemperature', () => {
     await acc.setTargetTemperature(23.0);
     expect(acc.cachedTemperature).toBe(23.0);
   });
+
+  test.each([
+    [21.11, 21],
+    [21.3, 21.5],
+    [21.25, 21.5],
+    [4.6, 4.5],
+    [29.4, 29.5],
+  ])('rounds %p to the nearest 0.5 (%p) for the payload and the cache', async (input, expected) => {
+    const acc = makeAccessory({});
+    const client = getMqttClient();
+    await acc.setTargetTemperature(input);
+    const payload = JSON.parse(client.publish.mock.calls[0][1]);
+    expect(payload.value).toBe(expected);
+    expect(acc.cachedTemperature).toBe(expected);
+  });
 });
 
 // ─── getCurrentHeatingCoolingState ───────────────────────────────────────────

@@ -1,5 +1,7 @@
 const mqtt = require('mqtt');
 
+const ALLOWED_RETRY_MINUTES = [1, 5, 15, 30, 60];
+
 let Service, Characteristic;
 
 module.exports = (homebridge) => {
@@ -18,6 +20,10 @@ class EQ3Thermostat {
 		this.lastUpdated = 0;
 		this.cacheDuration = (config.cacheDuration || 10) * 1000;
 		this.debug = config.debug === true;
+		const configuredRetryMinutes = config.setRetryMinutes;
+		this.setRetryMinutes = ALLOWED_RETRY_MINUTES.includes(configuredRetryMinutes)
+			? configuredRetryMinutes
+			: 15;
 		this.requestCooldown = 5 * 1000;
 		this.lastRequestTime = 0;
 		this.cachedTemperature = 20.0;
@@ -54,6 +60,17 @@ class EQ3Thermostat {
 					if (changed) this.pushToHomeKit(data.value);
 				} else if (data.type === 'set') {
 					this.log('Set command acknowledged');
+				} else if (data.type === 'error' && /^set/.test(data.request || '')) {
+					const minutes = data.gaveUpAfterMs != null
+						? Math.round(data.gaveUpAfterMs / 60000)
+						: this.setRetryMinutes;
+					const firstLine = (data.error || '').split('\n')[0];
+					const msg = `Change not applied to thermostat after ${minutes} min: ${firstLine}`;
+					if (typeof this.log.warn === 'function') {
+						this.log.warn(msg);
+					} else {
+						this.log(msg);
+					}
 				}
 			}
 		});
@@ -170,7 +187,8 @@ class EQ3Thermostat {
 		this.publishRequest({
 			type: 'setTemperature',
 			macAddress: this.macAddress,
-			value: value
+			value: value,
+			retryForMs: this.setRetryMinutes * 60000
 		});
 
 		this.cachedTemperature = value;
@@ -216,7 +234,8 @@ class EQ3Thermostat {
 		this.publishRequest({
 			type: 'setMode',
 			macAddress: this.macAddress,
-			mode: modeCommand
+			mode: modeCommand,
+			retryForMs: this.setRetryMinutes * 60000
 		});
 	}
 }

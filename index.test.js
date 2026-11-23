@@ -81,6 +81,30 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
+// ─── setRetryMinutes ─────────────────────────────────────────────────────────
+
+describe('setRetryMinutes', () => {
+  test('defaults to 15', () => {
+    const acc = makeAccessory({});
+    expect(acc.setRetryMinutes).toBe(15);
+  });
+
+  test.each([1, 5, 15, 30, 60])('accepts allowed value %s', (minutes) => {
+    const acc = makeAccessory({ setRetryMinutes: minutes });
+    expect(acc.setRetryMinutes).toBe(minutes);
+  });
+
+  test.each([
+    [0, 15],
+    [7, 15],
+    ['15', 15],
+    [null, 15],
+  ])('falls back to 15 for invalid value %p', (input, expected) => {
+    const acc = makeAccessory({ setRetryMinutes: input });
+    expect(acc.setRetryMinutes).toBe(expected);
+  });
+});
+
 // ─── cacheDuration ───────────────────────────────────────────────────────────
 
 describe('cacheDuration', () => {
@@ -200,14 +224,29 @@ describe('setTargetTemperature', () => {
     const acc = makeAccessory({});
     const client = getMqttClient();
     await acc.setTargetTemperature(21.0);
-    expect(client.publish).toHaveBeenCalledWith(
-      'homebridge/eq3hk/request',
-      expect.stringContaining('"type":"setTemperature"')
-    );
-    expect(client.publish).toHaveBeenCalledWith(
-      'homebridge/eq3hk/request',
-      expect.stringContaining('"value":21')
-    );
+    const payload = JSON.parse(client.publish.mock.calls[0][1]);
+    expect(payload).toMatchObject({
+      type: 'setTemperature',
+      macAddress: 'AA:BB:CC:DD:EE:FF',
+      value: 21,
+      retryForMs: 900000,
+    });
+  });
+
+  test('publishes retryForMs = 900000 by default', async () => {
+    const acc = makeAccessory({});
+    const client = getMqttClient();
+    await acc.setTargetTemperature(20);
+    const payload = JSON.parse(client.publish.mock.calls[0][1]);
+    expect(payload.retryForMs).toBe(900000);
+  });
+
+  test('publishes retryForMs = 300000 when setRetryMinutes is 5', async () => {
+    const acc = makeAccessory({ setRetryMinutes: 5 });
+    const client = getMqttClient();
+    await acc.setTargetTemperature(20);
+    const payload = JSON.parse(client.publish.mock.calls[0][1]);
+    expect(payload.retryForMs).toBe(300000);
   });
 
   test('clamps value below minimum to 4.5', async () => {
@@ -281,8 +320,12 @@ describe('setTargetHeatingCoolingState', () => {
     const client = getMqttClient();
     await acc.setTargetHeatingCoolingState(OFF);
     const payload = JSON.parse(client.publish.mock.calls[0][1]);
-    expect(payload.type).toBe('setMode');
-    expect(payload.mode).toBe('off');
+    expect(payload).toMatchObject({
+      type: 'setMode',
+      macAddress: 'AA:BB:CC:DD:EE:FF',
+      mode: 'off',
+      retryForMs: 900000,
+    });
   });
 
   test('publishes "manual" mode when set to HEAT', async () => {
@@ -290,7 +333,11 @@ describe('setTargetHeatingCoolingState', () => {
     const client = getMqttClient();
     await acc.setTargetHeatingCoolingState(HEAT);
     const payload = JSON.parse(client.publish.mock.calls[0][1]);
-    expect(payload.mode).toBe('manual');
+    expect(payload).toMatchObject({
+      type: 'setMode',
+      mode: 'manual',
+      retryForMs: 900000,
+    });
   });
 
   test('publishes "manual" mode when set to COOL', async () => {
@@ -401,6 +448,89 @@ describe('MQTT message handler', () => {
       value: 23.5
     })));
     expect(acc.cachedTemperature).toBe(23.5);
+  });
+
+  test('logs a warning when a setTemperature error response arrives', () => {
+    const log = jest.fn();
+    log.warn = jest.fn();
+    const acc = makeAccessory({});
+    acc.log = log;
+    const handler = getMessageHandler(acc);
+    handler('homebridge/eq3hk/response', Buffer.from(JSON.stringify({
+      macAddress: 'AA:BB:CC:DD:EE:FF',
+      type: 'error',
+      request: 'setTemperature',
+      error: 'Connection timed out\nsecond line',
+    })));
+    expect(log.warn).toHaveBeenCalledWith(
+      'Change not applied to thermostat after 15 min: Connection timed out'
+    );
+  });
+
+  test('uses gaveUpAfterMs for minutes in the warning when present', () => {
+    const log = jest.fn();
+    log.warn = jest.fn();
+    const acc = makeAccessory({ setRetryMinutes: 15 });
+    acc.log = log;
+    const handler = getMessageHandler(acc);
+    handler('homebridge/eq3hk/response', Buffer.from(JSON.stringify({
+      macAddress: 'AA:BB:CC:DD:EE:FF',
+      type: 'error',
+      request: 'setMode',
+      error: 'gave up',
+      gaveUpAfterMs: 300000,
+    })));
+    expect(log.warn).toHaveBeenCalledWith(
+      'Change not applied to thermostat after 5 min: gave up'
+    );
+  });
+
+  test('falls back to log when log.warn is not available', () => {
+    const log = jest.fn();
+    const acc = makeAccessory({});
+    acc.log = log;
+    const handler = getMessageHandler(acc);
+    handler('homebridge/eq3hk/response', Buffer.from(JSON.stringify({
+      macAddress: 'AA:BB:CC:DD:EE:FF',
+      type: 'error',
+      request: 'setTemperature',
+      error: 'BLE failed',
+    })));
+    expect(log).toHaveBeenCalledWith(
+      'Change not applied to thermostat after 15 min: BLE failed'
+    );
+    expect(log.warn).toBeUndefined();
+  });
+
+  test('does NOT log for a getTemperature error response without request', () => {
+    const log = jest.fn();
+    log.warn = jest.fn();
+    const acc = makeAccessory({});
+    acc.log = log;
+    const handler = getMessageHandler(acc);
+    handler('homebridge/eq3hk/response', Buffer.from(JSON.stringify({
+      macAddress: 'AA:BB:CC:DD:EE:FF',
+      type: 'error',
+      error: 'Command failed: eq3.exp',
+    })));
+    expect(log.warn).not.toHaveBeenCalled();
+    expect(log).not.toHaveBeenCalled();
+  });
+
+  test('does NOT log for error with request getTemperature', () => {
+    const log = jest.fn();
+    log.warn = jest.fn();
+    const acc = makeAccessory({});
+    acc.log = log;
+    const handler = getMessageHandler(acc);
+    handler('homebridge/eq3hk/response', Buffer.from(JSON.stringify({
+      macAddress: 'AA:BB:CC:DD:EE:FF',
+      type: 'error',
+      request: 'getTemperature',
+      error: 'poll failed',
+    })));
+    expect(log.warn).not.toHaveBeenCalled();
+    expect(log).not.toHaveBeenCalled();
   });
 });
 
@@ -550,13 +680,21 @@ describe('debug option', () => {
   test('flags setTemperature requests with debug:true when enabled', async () => {
     const acc = makeAccessory({ debug: true });
     await acc.setTargetTemperature(21);
-    expect(publishedPayloads(acc)[0]).toMatchObject({ type: 'setTemperature', debug: true });
+    expect(publishedPayloads(acc)[0]).toMatchObject({
+      type: 'setTemperature',
+      retryForMs: 900000,
+      debug: true,
+    });
   });
 
   test('flags setMode requests with debug:true when enabled', async () => {
     const acc = makeAccessory({ debug: true });
     await acc.setTargetHeatingCoolingState(OFF);
-    expect(publishedPayloads(acc)[0]).toMatchObject({ type: 'setMode', debug: true });
+    expect(publishedPayloads(acc)[0]).toMatchObject({
+      type: 'setMode',
+      retryForMs: 900000,
+      debug: true,
+    });
   });
 
   test('does not add a debug key when disabled', async () => {
@@ -568,16 +706,30 @@ describe('debug option', () => {
     }
   });
 
-  test('logs error responses for this thermostat when enabled', () => {
+  test('logs set error responses via debug response line when enabled', () => {
     const acc = makeAccessory({ debug: true });
-    sendResponse({ macAddress: 'AA:BB:CC:DD:EE:FF', type: 'error', error: 'Command failed: eq3.exp' });
-    expect(acc.log).toHaveBeenCalledWith(expect.stringContaining('Command failed: eq3.exp'));
+    sendResponse({
+      macAddress: 'AA:BB:CC:DD:EE:FF',
+      type: 'error',
+      request: 'setTemperature',
+      error: 'Command failed: eq3.exp',
+    });
+    expect(acc.log).toHaveBeenCalledWith(expect.stringContaining('[debug] response:'));
   });
 
-  test('does not log error responses when disabled', () => {
+  test('warns on set error even when debug is disabled', () => {
+    const log = jest.fn();
+    log.warn = jest.fn();
     const acc = makeAccessory({});
-    sendResponse({ macAddress: 'AA:BB:CC:DD:EE:FF', type: 'error', error: 'Command failed: eq3.exp' });
-    expect(acc.log).not.toHaveBeenCalled();
+    acc.log = log;
+    const handler = getMqttClient().on.mock.calls.find((c) => c[0] === 'message')[1];
+    handler('homebridge/eq3hk/response', Buffer.from(JSON.stringify({
+      macAddress: 'AA:BB:CC:DD:EE:FF',
+      type: 'error',
+      request: 'setTemperature',
+      error: 'Command failed: eq3.exp',
+    })));
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('Command failed: eq3.exp'));
   });
 });
 

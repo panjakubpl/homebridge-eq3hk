@@ -12,7 +12,22 @@ const { exec } = require('child_process');
 const {
   validateMac, retryCommand, enqueueRequest, _resetQueue,
   checkBluetooth, logBleFailure, noteBleSuccess, BLUETOOTH_HINT,
+  SET_RETRY_BACKOFF_MS,
 } = require('./mqtt_handler');
+
+/** Defer exec callbacks until failCycle (or test) invokes them. */
+function deferExec() {
+  exec.mockImplementation(() => {});
+}
+
+/** Fail one retryCommand cycle (3 exec attempts, 3 s apart). */
+function failCycle(execMock) {
+  for (let i = 0; i < 3; i++) {
+    const cb = execMock.mock.calls[execMock.mock.calls.length - 1][1];
+    cb(new Error('BLE fail'), '', '');
+    if (i < 2) jest.advanceTimersByTime(3000);
+  }
+}
 
 // ─── validateMac ─────────────────────────────────────────────────────────────
 
@@ -192,6 +207,225 @@ describe('enqueueRequest', () => {
         done();
       }
     });
+  });
+
+  test('mode and temp jobs for the same MAC both run (no eviction)', () => {
+    let lowCb;
+    exec.mockImplementation((cmd, cb) => {
+      if (!lowCb) lowCb = cb;
+      else cb(null, '', '');
+    });
+
+    enqueueRequest({ command: 'get-cmd', priority: 'low', onDone: () => {} });
+    enqueueRequest({ command: 'mode-manual', priority: 'high', key: 'M:mode', onDone: () => {} });
+    enqueueRequest({ command: 'temp-29.5', priority: 'high', key: 'M:temp', onDone: () => {} });
+    expect(exec).toHaveBeenCalledTimes(1);
+
+    lowCb(null, 'Temperature: 20.0°C', '');
+    jest.runOnlyPendingTimers();
+    expect(exec).toHaveBeenCalledTimes(3);
+    expect(exec.mock.calls[1][0]).toBe('mode-manual');
+    expect(exec.mock.calls[2][0]).toBe('temp-29.5');
+  });
+});
+
+// ─── set retry window ─────────────────────────────────────────────────────────
+
+describe('set retry window', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    exec.mockReset();
+    _resetQueue();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  test('SET_RETRY_BACKOFF_MS is 10000', () => {
+    expect(SET_RETRY_BACKOFF_MS).toBe(10000);
+  });
+
+  test('failed cycle re-arms after 10 s while before deadline', () => {
+    const onDone = jest.fn();
+    deferExec();
+
+    enqueueRequest({
+      command: 'set-cmd',
+      priority: 'high',
+      retryForMs: 60000,
+      onDone,
+    });
+    failCycle(exec);
+    expect(exec).toHaveBeenCalledTimes(3);
+    expect(onDone).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(SET_RETRY_BACKOFF_MS - 1);
+    expect(exec).toHaveBeenCalledTimes(3);
+
+    jest.advanceTimersByTime(1);
+    expect(exec).toHaveBeenCalledTimes(4);
+    expect(exec.mock.calls[3][0]).toBe('set-cmd');
+    expect(onDone).not.toHaveBeenCalled();
+  });
+
+  test('gives up after deadline and calls onDone with error once', () => {
+    const onDone = jest.fn();
+    deferExec();
+
+    enqueueRequest({
+      command: 'set-cmd',
+      priority: 'high',
+      retryForMs: 30000,
+      onDone,
+    });
+    let guard = 0;
+    while (!onDone.mock.calls.length && guard++ < 20) {
+      failCycle(exec);
+      jest.advanceTimersByTime(SET_RETRY_BACKOFF_MS);
+    }
+
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(onDone.mock.calls[0][0]).not.toBeNull();
+    const callsAfter = exec.mock.calls.length;
+    jest.advanceTimersByTime(60000);
+    expect(exec.mock.calls.length).toBe(callsAfter);
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  test('succeeds on a later cycle → onDone(null) once', () => {
+    const onDone = jest.fn();
+    deferExec();
+
+    enqueueRequest({
+      command: 'set-cmd',
+      priority: 'high',
+      retryForMs: 60000,
+      onDone,
+    });
+    failCycle(exec);
+    jest.advanceTimersByTime(SET_RETRY_BACKOFF_MS);
+    exec.mock.calls[exec.mock.calls.length - 1][1](null, 'ok', '');
+
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(onDone.mock.calls[0][0]).toBeNull();
+  });
+
+  test('without retryForMs runs a single cycle', () => {
+    const onDone = jest.fn();
+    deferExec();
+
+    enqueueRequest({ command: 'set-cmd', priority: 'high', onDone });
+    failCycle(exec);
+
+    expect(exec).toHaveBeenCalledTimes(3);
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(onDone.mock.calls[0][0]).not.toBeNull();
+    jest.advanceTimersByTime(60000);
+    expect(exec).toHaveBeenCalledTimes(3);
+  });
+
+  test.each([0, -1, 'x', 3600001])('invalid retryForMs (%p) → single cycle', (retryForMs) => {
+    const onDone = jest.fn();
+    deferExec();
+
+    enqueueRequest({
+      command: 'set-cmd',
+      priority: 'high',
+      retryForMs,
+      onDone,
+    });
+    failCycle(exec);
+
+    expect(exec).toHaveBeenCalledTimes(3);
+    expect(onDone).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(60000);
+    expect(exec).toHaveBeenCalledTimes(3);
+  });
+
+  test('superseded while in flight: old failure neither re-arms nor calls onDone; new job runs', () => {
+    const oldDone = jest.fn();
+    const newDone = jest.fn();
+    deferExec();
+
+    enqueueRequest({ command: 'set-old', priority: 'high', key: 'K', retryForMs: 60000, onDone: oldDone });
+    enqueueRequest({ command: 'set-new', priority: 'high', key: 'K', retryForMs: 60000, onDone: newDone });
+
+    failCycle(exec);
+    jest.runOnlyPendingTimers();
+
+    expect(oldDone).not.toHaveBeenCalled();
+    expect(exec.mock.calls.filter((c) => c[0] === 'set-old')).toHaveLength(3);
+    expect(exec.mock.calls.filter((c) => c[0] === 'set-new').length).toBeGreaterThanOrEqual(1);
+    exec.mock.calls[exec.mock.calls.length - 1][1](null, '', '');
+    expect(newDone).toHaveBeenCalled();
+    jest.advanceTimersByTime(SET_RETRY_BACKOFF_MS);
+    jest.runOnlyPendingTimers();
+    expect(exec.mock.calls.filter((c) => c[0] === 'set-old')).toHaveLength(3);
+  });
+
+  test('deadline passing mid-cycle → no further cycle', () => {
+    const onDone = jest.fn();
+    deferExec();
+
+    enqueueRequest({
+      command: 'set-cmd',
+      priority: 'high',
+      retryForMs: 5000,
+      onDone,
+    });
+    failCycle(exec);
+    jest.advanceTimersByTime(SET_RETRY_BACKOFF_MS);
+    jest.runOnlyPendingTimers();
+
+    expect(onDone).toHaveBeenCalledTimes(1);
+    const after = exec.mock.calls.length;
+    jest.advanceTimersByTime(60000);
+    expect(exec.mock.calls.length).toBe(after);
+  });
+
+  test('poll dropped during backoff gap', () => {
+    deferExec();
+
+    enqueueRequest({
+      command: 'set-cmd',
+      priority: 'high',
+      retryForMs: 60000,
+      onDone: () => {},
+    });
+    failCycle(exec);
+    const callsBefore = exec.mock.calls.length;
+
+    const accepted = enqueueRequest({ command: 'poll', priority: 'low', onDone: () => {} });
+    expect(accepted).toBe(false);
+    jest.advanceTimersByTime(SET_RETRY_BACKOFF_MS);
+    jest.runOnlyPendingTimers();
+    expect(exec.mock.calls.length).toBeGreaterThan(callsBefore);
+  });
+
+  test('jobs of two MACs alternate: failing A in backoff does not block ready B', () => {
+    deferExec();
+
+    enqueueRequest({
+      command: 'cmd-A',
+      priority: 'high',
+      key: 'A:temp',
+      retryForMs: 60000,
+      onDone: () => {},
+    });
+    failCycle(exec);
+    expect(exec.mock.calls.filter((c) => c[0] === 'cmd-A')).toHaveLength(3);
+
+    enqueueRequest({
+      command: 'cmd-B',
+      priority: 'high',
+      key: 'B:temp',
+      retryForMs: 60000,
+      onDone: () => {},
+    });
+    const cb = exec.mock.calls[exec.mock.calls.length - 1][1];
+    cb(null, 'ok', '');
+    expect(exec.mock.calls.some((c) => c[0] === 'cmd-B')).toBe(true);
   });
 });
 
